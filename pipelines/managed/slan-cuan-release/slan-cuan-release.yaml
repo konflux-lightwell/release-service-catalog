@@ -78,11 +78,11 @@ spec:
     - name: taskGitUrl
       type: string
       description: The url to the git repo where the slan-cuan tasks are stored
-      default: https://github.com/konflux-lightwell/slan-cuan.git
+      default: https://github.com/arewm/slan-cuan.git
     - name: taskGitRevision
       type: string
       description: The revision in the taskGitUrl repo to be used
-      default: main
+      default: 509fb97bb20fd8c3c021c6965e6f000134d396e5
 
     # Extract parameters
     - name: registry-auth-secret
@@ -186,10 +186,6 @@ spec:
       description: JSON object for Tekton Chains SLSA provenance.
       type: object
       value: $(tasks.publish.results.PUBLISHED_ARTIFACT_OUTPUTS)
-
-  workspaces:
-    - name: shared-workspace
-      description: Shared workspace for artifact processing across tasks.
 
   tasks:
     - name: collect-data
@@ -339,9 +335,20 @@ spec:
           value: $(params.registry-auth-secret)
         - name: FORCE
           value: $(params.force-extract)
-      workspaces:
-        - name: workdir
-          workspace: shared-workspace
+        - name: ociStorage
+          value: $(params.ociStorage)
+        - name: ociArtifactExpiresAfter
+          value: $(params.ociArtifactExpiresAfter)
+        - name: orasOptions
+          value: $(params.orasOptions)
+        - name: caTrustConfigMapName
+          value: $(params.caTrustConfigMapName)
+        - name: caTrustConfigMapKey
+          value: $(params.caTrustConfigMapKey)
+        - name: catalogGitUrl
+          value: $(params.catalogGitUrl)
+        - name: catalogGitRevision
+          value: $(params.catalogGitRevision)
 
     - name: sign
       taskRef:
@@ -375,9 +382,20 @@ spec:
           value: $(params.product-key)
         - name: IGNORE_PATTERNS
           value: $(params.ignore-patterns)
-      workspaces:
-        - name: workdir
-          workspace: shared-workspace
+        - name: sourceDataArtifact
+          value: $(tasks.extract.results.sourceDataArtifact)
+        - name: ociStorage
+          value: $(params.ociStorage)
+        - name: orasOptions
+          value: $(params.orasOptions)
+        - name: caTrustConfigMapName
+          value: $(params.caTrustConfigMapName)
+        - name: caTrustConfigMapKey
+          value: $(params.caTrustConfigMapKey)
+        - name: catalogGitUrl
+          value: $(params.catalogGitUrl)
+        - name: catalogGitRevision
+          value: $(params.catalogGitRevision)
 
     - name: register
       taskRef:
@@ -404,9 +422,20 @@ spec:
           value: $(params.register-retries)
         - name: CA_CERT_SECRET
           value: $(params.register-ca-cert-secret)
-      workspaces:
-        - name: workdir
-          workspace: shared-workspace
+        - name: sourceDataArtifact
+          value: $(tasks.extract.results.sourceDataArtifact)
+        - name: ociStorage
+          value: $(params.ociStorage)
+        - name: orasOptions
+          value: $(params.orasOptions)
+        - name: caTrustConfigMapName
+          value: $(params.caTrustConfigMapName)
+        - name: caTrustConfigMapKey
+          value: $(params.caTrustConfigMapKey)
+        - name: catalogGitUrl
+          value: $(params.catalogGitUrl)
+        - name: catalogGitRevision
+          value: $(params.catalogGitRevision)
 
     - name: publish
       taskRef:
@@ -430,6 +459,17 @@ spec:
           value: $(params.publish-insecure)
         - name: CA_CERT_SECRET
           value: $(params.publish-ca-cert-secret)
-      workspaces:
-        - name: workdir
-          workspace: shared-workspace
+        - name: sourceDataArtifact
+          value: $(tasks.extract.results.sourceDataArtifact)
+        - name: ociStorage
+          value: $(params.ociStorage)
+        - name: orasOptions
+          value: $(params.orasOptions)
+        - name: caTrustConfigMapName
+          value: $(params.caTrustConfigMapName)
+        - name: caTrustConfigMapKey
+          value: $(params.caTrustConfigMapKey)
+        - name: catalogGitUrl
+          value: $(params.catalogGitUrl)
+        - name: catalogGitRevision
+          value: $(params.catalogGitRevision)
