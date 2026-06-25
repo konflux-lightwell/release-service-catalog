@@ -111,19 +111,19 @@ spec:
         Used for audit trails and RADAS access control. Typically an email address
       type: string
       default: "slan-cuan@org.com"
-    - name: zip-root-path
+    - name: sign-zip-root-path
       description: |
         Root of the Maven repository tree inside the ZIP archive submitted to RADAS.
         The ZIP file structure is <ZIP_ROOT_PATH>/<maven-layout>
       type: string
       default: "repository"
-    - name: product-key
+    - name: sign-product-key
       description: |
         Product key for metadata tagging.
         Identifies the product in RADAS records and signing logs
       type: string
       default: "slan-cuan"
-    - name: ignore-patterns
+    - name: sign-ignore-patterns
       description: |
         Comma-separated regex patterns to exclude files from signing.
         Example: ".*-sources\\.jar$,.*-javadoc\\.jar$" excludes source and javadoc JARs
