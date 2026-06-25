@@ -82,7 +82,7 @@ spec:
     - name: taskGitRevision
       type: string
       description: The revision in the taskGitUrl repo to be used
-      default: 509fb97bb20fd8c3c021c6965e6f000134d396e5
+      default: be21083a5005c45e1c5d34f00a26dbe87b9b6e52
 
     # Extract parameters
     - name: registry-auth-secret
@@ -323,7 +323,7 @@ spec:
           - name: url
             value: "https://github.com/arewm/slan-cuan.git"
           - name: revision
-            value: "509fb97bb20fd8c3c021c6965e6f000134d396e5"
+            value: "be21083a5005c45e1c5d34f00a26dbe87b9b6e52"
           - name: pathInRepo
             value: tekton/tasks/slan-cuan-extract.yaml
       runAfter:
@@ -357,7 +357,7 @@ spec:
           - name: url
             value: "https://github.com/arewm/slan-cuan.git"
           - name: revision
-            value: "509fb97bb20fd8c3c021c6965e6f000134d396e5"
+            value: "be21083a5005c45e1c5d34f00a26dbe87b9b6e52"
           - name: pathInRepo
             value: tekton/tasks/slan-cuan-sign.yaml
       runAfter:
@@ -398,7 +398,7 @@ spec:
           - name: url
             value: "https://github.com/arewm/slan-cuan.git"
           - name: revision
-            value: "509fb97bb20fd8c3c021c6965e6f000134d396e5"
+            value: "be21083a5005c45e1c5d34f00a26dbe87b9b6e52"
           - name: pathInRepo
             value: tekton/tasks/slan-cuan-register.yaml
       runAfter:
@@ -438,7 +438,7 @@ spec:
           - name: url
             value: "https://github.com/arewm/slan-cuan.git"
           - name: revision
-            value: "509fb97bb20fd8c3c021c6965e6f000134d396e5"
+            value: "be21083a5005c45e1c5d34f00a26dbe87b9b6e52"
           - name: pathInRepo
             value: tekton/tasks/slan-cuan-publish.yaml
       runAfter:
