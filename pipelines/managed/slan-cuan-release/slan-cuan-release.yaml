@@ -360,12 +360,6 @@ spec:
             value: "509fb97bb20fd8c3c021c6965e6f000134d396e5"
           - name: pathInRepo
             value: tekton/tasks/slan-cuan-sign.yaml
-        env:
-          - name: RADAS_CONFIG_PATH
-            valueFrom:
-              secretKeyRef:
-                name: radas-cfg
-                key: radas_cfg.json
       runAfter:
         - extract
         - collect-task-params
