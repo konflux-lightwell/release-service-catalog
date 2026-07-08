@@ -246,7 +246,9 @@ spec:
               {"resultIndex": 1, "key": ".pulp.repository"},
               {"resultIndex": 2, "key": ".radas.signingKey"},
               {"resultIndex": 3, "key": ".trustify.apiUrl"},
-              {"resultIndex": 4, "key": ".trustify.ssoTokenUrl"}
+              {"resultIndex": 4, "key": ".trustify.ssoTokenUrl"},
+              {"resultIndex": 5, "key": ".pulp.pulpDomain"},
+              {"resultIndex": 6, "key": ".pulp.secretName"}
             ]
         - name: ociStorage
           value: $(params.ociStorage)
@@ -436,12 +438,14 @@ spec:
           value: $(tasks.collect-task-params.results.extractedValues[0])
         - name: PULP_REPOSITORY
           value: $(tasks.collect-task-params.results.extractedValues[1])
+        - name: PULP_DOMAIN
+          value: $(tasks.collect-task-params.results.extractedValues[5])
         - name: PULP_CERT_SECRET
-          value: lightwell-pulp-prod-secret
+          value: $(tasks.collect-task-params.results.extractedValues[6])
         - name: PULP_USERNAME
-          value: lightwell-pulp-prod-secret
+          value: $(tasks.collect-task-params.results.extractedValues[6])
         - name: PULP_PASSWORD
-          value: lightwell-pulp-prod-secret
+          value: $(tasks.collect-task-params.results.extractedValues[6])
         - name: INSECURE
           value: $(params.publish-insecure)
         - name: CA_CERT_SECRET
