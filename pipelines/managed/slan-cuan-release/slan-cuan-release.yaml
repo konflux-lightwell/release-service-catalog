@@ -289,7 +289,8 @@ spec:
         - name: keysToExtract
           value: |
             [
-              {"resultIndex": 0, "key": ".components[0].containerImage"}
+              {"resultIndex": 0, "key": ".components[0].containerImage"},
+              {"resultIndex": 1, "key": ".components[0].build.results.INDEX_BUILD_JSON_ARTIFACT"}
             ]
         - name: ociStorage
           value: $(params.ociStorage)
@@ -420,6 +421,40 @@ spec:
         - name: catalogGitRevision
           value: $(params.catalogGitRevision)
 
+    - name: generate-security-metadata
+      taskRef:
+        resolver: "git"
+        params:
+          - name: url
+            value: https://github.com/konflux-lightwell/slan-cuan.git
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tekton/tasks/slan-cuan-generate-security-metadata.yaml
+      runAfter:
+        - sign
+      params:
+        - name: INDEX_BASEDIR
+          value: $(tasks.collect-snapshot-params.results.extractedValues[1])
+        - name: sourceDataArtifact
+          value: $(tasks.sign.results.sourceDataArtifact)
+        - name: ociStorage
+          value: $(params.ociStorage)
+        - name: ociArtifactExpiresAfter
+          value: $(params.ociArtifactExpiresAfter)
+        - name: trustedArtifactsDebug
+          value: $(params.trustedArtifactsDebug)
+        - name: orasOptions
+          value: $(params.orasOptions)
+        - name: caTrustConfigMapName
+          value: $(params.caTrustConfigMapName)
+        - name: caTrustConfigMapKey
+          value: $(params.caTrustConfigMapKey)
+        - name: catalogGitUrl
+          value: $(params.catalogGitUrl)
+        - name: catalogGitRevision
+          value: $(params.catalogGitRevision)
+
     - name: publish
       taskRef:
         resolver: "git"
@@ -433,6 +468,7 @@ spec:
       runAfter:
         - sign
         - collect-task-params
+        - generate-security-metadata
       params:
         - name: PULP_URL
           value: $(tasks.collect-task-params.results.extractedValues[0])
