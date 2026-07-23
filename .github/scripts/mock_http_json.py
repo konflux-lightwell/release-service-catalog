@@ -39,7 +39,13 @@ def _routes_from_env() -> list[dict]:
     return json.loads(base64.standard_b64decode(raw))
 
 
-def _match_route(routes: list[dict], method: str, path: str) -> bytes | None:
+def _match_route(
+    routes: list[dict],
+    method: str,
+    path: str,
+    *,
+    request_target: str,
+) -> bytes | None:
     """Return the response body for the first matching route, or None."""
     for rule in routes:
         rule_method = rule.get("method", "").upper()
@@ -52,7 +58,8 @@ def _match_route(routes: list[dict], method: str, path: str) -> bytes | None:
                 return rule["body"].encode("utf-8")
             continue
         sub = rule.get("path_contains")
-        if sub is not None and sub in path:
+        if sub is not None and sub in request_target:
+            # Query params live on request_target (self.path), not parsed.path.
             return rule["body"].encode("utf-8")
     return None
 
@@ -68,7 +75,12 @@ class _Handler(BaseHTTPRequestHandler):
     def _handle_request(self, method: str) -> None:
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
-        body = _match_route(self.routes, method, path)
+        body = _match_route(
+            self.routes,
+            method,
+            path,
+            request_target=self.path,
+        )
         if body is None:
             self.send_response(404)
             self.end_headers()
@@ -143,11 +155,16 @@ def main() -> None:
     bind = os.environ.get("TEKTON_HTTP_BIND", "127.0.0.1")
     routes = _routes_from_env()
     _Handler.routes = routes
-    server = _ReuseHTTPServer((bind, port), _Handler)
 
+    cert_path: str | None = None
+    key_path: str | None = None
     if os.environ.get("TEKTON_MOCK_TLS") == "1":
         hostname = os.environ.get("TEKTON_MOCK_HOSTNAME")
         cert_path, key_path, _ca = _generate_self_signed_cert(bind, hostname)
+
+    server = _ReuseHTTPServer((bind, port), _Handler)
+
+    if cert_path is not None and key_path is not None:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(cert_path, key_path)
         server.socket = ctx.wrap_socket(server.socket, server_side=True)

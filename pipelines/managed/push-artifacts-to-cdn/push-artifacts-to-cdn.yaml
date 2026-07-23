@@ -240,7 +240,7 @@ spec:
           - name: url
             value: https://github.com/conforma/tekton-catalog
           - name: revision
-            value: "f20c7a8c15a71c9462b11e5a28f8907a29c7075a"
+            value: "2c1963225e8563194a8dce7f659c71bd866da426"
           - name: pathInRepo
             value: "tasks/verify-conforma-konflux-ta/0.1/verify-conforma-konflux-ta.yaml"
       params:
@@ -296,17 +296,16 @@ spec:
             value: tasks/managed/populate-release-notes/populate-release-notes.yaml
       runAfter:
         - verify-conforma
+        - collect-task-params
     - name: check-data-keys
       params:
         - name: dataPath
           value: "$(tasks.collect-data.results.data)"
-        - name: schema
-          value:  $(params.taskGitUrl)/raw/$(params.taskGitRevision)/schema/dataKeys.json
         - name: systems
           value: |
             [
               {"systemName": "cdn", "dynamic": false},
-              {"systemName": "contentGateway", "dynamic": false},
+              {"systemName": "contentGateway", "dynamic": true},
               {"systemName": "intention", "dynamic": false},
               {"systemName": "releaseNotes", "dynamic": false}
             ]
@@ -408,8 +407,8 @@ spec:
         - name: quayURL
           value: "$(params.quayURL)"
       runAfter:
-        - verify-conforma
         - embargo-check
+        - verify-conforma
     - name: create-advisory
       params:
         - name: releasePlanAdmissionPath

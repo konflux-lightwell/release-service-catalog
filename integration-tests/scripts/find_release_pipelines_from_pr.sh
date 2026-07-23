@@ -165,7 +165,7 @@ _emit_integration_testcase_string() {
         TEMP_MANAGED_PIPELINENAMES+=("push-artifacts-to-cdn")
         ;;
       "push-disk-images")
-        TEMP_MANAGED_PIPELINENAMES+=("push-disk-images-to-cdn")
+        TEMP_MANAGED_PIPELINENAMES+=("push-disk-images" "push-disk-images-to-cdn")
         ;;
       "request-advisory-oci-artifact")
         TEMP_MANAGED_PIPELINENAMES+=("rh-advisories")
@@ -318,9 +318,6 @@ _accumulate_one_catalog_changed_path() {
 
   # match the files under stepactions
   if echo "$file" | grep -q "^stepactions/"; then
-    SELECT_ALL_TESTCASES=true
-    return 1
-  elif [[ "$file" =~ ^schema/dataKeys.json$ ]] && [ -f "$file" ]; then
     SELECT_ALL_TESTCASES=true
     return 1
   elif echo "$file" | grep -q "^integration-tests/"; then

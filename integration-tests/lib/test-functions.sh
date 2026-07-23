@@ -346,11 +346,31 @@ create_kubernetes_resources() {
 
     echo "Building and applying tenant resources..."
     kustomize build "$tmpDir/tenant" | envsubst > "$tmpDir/tenant-resources.yaml"
-    kubectl create -f "$tmpDir/tenant-resources.yaml"
+    local max_retries=5
+    local attempt
+    for attempt in $(seq 1 "${max_retries}"); do
+        if kubectl create -f "$tmpDir/tenant-resources.yaml"; then
+            break
+        fi
+        if [ "${attempt}" -eq "${max_retries}" ]; then
+            log_error "kubectl create tenant resources failed after ${max_retries} attempts"
+        fi
+        echo "Retrying kubectl create tenant resources (attempt ${attempt}/${max_retries})..."
+        sleep "$((1 + RANDOM % 3))"
+    done
 
     echo "Building and applying managed resources..."
     kustomize build "$tmpDir/managed" | envsubst > "$tmpDir/managed-resources.yaml"
-    kubectl apply -f "$tmpDir/managed-resources.yaml"
+    for attempt in $(seq 1 "${max_retries}"); do
+        if kubectl apply -f "$tmpDir/managed-resources.yaml"; then
+            break
+        fi
+        if [ "${attempt}" -eq "${max_retries}" ]; then
+            log_error "kubectl apply managed resources failed after ${max_retries} attempts"
+        fi
+        echo "Retrying kubectl apply managed resources (attempt ${attempt}/${max_retries})..."
+        sleep "$((1 + RANDOM % 3))"
+    done
 
     echo "Kubernetes resources applied."
 }
@@ -381,7 +401,7 @@ fetch_component_build_status_annotation() {
 _wait_for_component_initialization() {
     echo "Waiting for component ${_component_name} in namespace ${tenant_namespace} to be initialized..."
 
-    local max_attempts=60  # 10 minutes with 10-second intervals
+    local max_attempts=60  # 20 minutes with 20-second intervals
     local attempt=1
     local component_annotations=""
     local initialization_success=false
@@ -392,8 +412,8 @@ _wait_for_component_initialization() {
       if ! component_annotations=$(fetch_component_build_status_annotation "${_component_name}"); then
         log_warning "Could not reach component ${_component_name} (kubectl get failed); retrying..."
         if [ $attempt -lt $max_attempts ]; then
-          echo "Waiting 10 seconds before retry..."
-          sleep 10
+          echo "Waiting 20 seconds before retry..."
+          sleep 20
         fi
         attempt=$((attempt + 1))
         continue
@@ -412,8 +432,8 @@ _wait_for_component_initialization() {
             break
         else
             log_warning "Could not get component PR from annotations: ${component_annotations}"
-            echo "Waiting 10 seconds before retry..."
-            sleep 10
+            echo "Waiting 20 seconds before retry..."
+            sleep 20
         fi
 
 
@@ -422,8 +442,8 @@ _wait_for_component_initialization() {
 
         # Wait before retrying (except on the last attempt)
         if [ $attempt -lt $max_attempts ]; then
-          echo "Waiting 10 seconds before retry..."
-          sleep 10
+          echo "Waiting 20 seconds before retry..."
+          sleep 20
         fi
       fi
 
@@ -559,7 +579,10 @@ wait_for_plrs_to_appear() {
     local start_time=$(date +%s)
     local current_time
     local elapsed_time
-    declare -gA appeared_plrs=()
+    # Only declare appeared_plrs if it doesn't exist (preserve existing entries during retry)
+    if [ -z "${appeared_plrs+x}" ]; then
+        declare -gA appeared_plrs=()
+    fi
     local count=$(echo "$PTSV_COMPONENTS" | wc -w)
 
     echo -n "Waiting for PipelineRun to appear"
@@ -1365,4 +1388,82 @@ wait_for_multi_component_snapshot() {
     fi
 
     echo "$snapshot_name"
+}
+
+check_container_images() {
+    local expected_count image_count
+
+    image_count=$(jq -r '.status.artifacts.images | length' <<< "${release_json}")
+    expected_count=$(echo "${PTSV_COMPONENTS}" | wc -w)
+
+    echo "Checking image count (expected ${expected_count} components)..."
+    if [ "${image_count}" -ge "${expected_count}" ]; then
+        echo "✅️ Found ${image_count} image entries (expected at least ${expected_count})"
+    else
+        echo "🔴 Found only ${image_count} image entries, expected at least ${expected_count}"
+        failures=$((failures+1))
+    fi
+
+    echo "Verifying each image artifact..."
+
+    for ((i = 0; i < image_count; i++)); do
+        local failures=0
+        local image_url image_arch image_shasum
+        image_url=$(jq -r --argjson idx "${i}" '.status.artifacts.images[$idx]?.urls[0] // ""' <<< "${release_json}")
+        image_arches=$(jq -r --argjson idx "${i}" '.status.artifacts.images[$idx]?.arches // ""' <<< "${release_json}")
+        image_shasum=$(jq -r --argjson idx "${i}" '.status.artifacts.images[$idx]?.shasum // ""' <<< "${release_json}")
+
+        echo "Checking Image URL..."
+        if [ -n "${image_url}" ]; then
+            echo "✅️ image_url: ${image_url}"
+        else
+            echo "🔴 image_url was empty"
+            failures=$((failures+1))
+        fi
+
+        str_image_arches=$(echo "${image_arches}" |  jq -r '. | sort | unique | join(" ")')
+        echo "Checking image arches..."
+        if [ "${str_image_arches}" = "$PTSV_EXPECTED_ARCHES" ]; then
+            echo "✅️ Found required image arches: $PTSV_EXPECTED_ARCHES"
+        else
+            echo "🔴 Expected image arches: '$PTSV_EXPECTED_ARCHES', found: '${image_arches}'"
+            failures=$((failures+1))
+        fi
+
+        echo "Checking Image Shasum..."
+        if [ -n "${image_shasum}" ]; then
+            echo "✅️ image_shasum: ${image_shasum}"
+        else
+            echo "🔴 image_shasum was empty"
+            failures=$((failures+1))
+        fi
+
+        # Use digest instead of tag, tag can be overwritten by concurrent tests
+        local image_pullspec="${image_url%:*}@${image_shasum}"
+
+        echo "Verifying multi-arch image pullability with skopeo (${image_pullspec})..."
+        AUTH_FILE="$(mktemp)"
+        yq '. | select(.metadata.name | contains("push-")) | .data.".dockerconfigjson"' \
+            "${SUITE_DIR}/resources/managed/secrets/managed-secrets.yaml" | base64 -d > "${AUTH_FILE}"
+
+        for arch in $PTSV_EXPECTED_ARCHES; do
+            if skopeo inspect --authfile "${AUTH_FILE}" --override-arch "${arch}" --tls-verify=true --retry-times 3 \
+                    "docker://${image_pullspec}" > /dev/null 2>&1; then
+                echo "✅️ skopeo inspect --override-arch ${arch} succeeded for ${image_pullspec}"
+            else
+                echo "🔴 skopeo inspect --override-arch ${arch} failed for ${image_pullspec}"
+                failures=$((failures+1))
+            fi
+        done
+
+        if [ "${failures}" -gt 0 ]; then
+          echo "🔴 Test has FAILED with ${failures} failure(s)!"
+          failed_releases="${RELEASE_NAME} ${failed_releases}"
+        else
+          echo "✅️ All release checks passed. Success!"
+        fi
+    done
+    if [ -f "${AUTH_FILE}" ]; then
+        rm -f "${AUTH_FILE}"
+    fi
 }

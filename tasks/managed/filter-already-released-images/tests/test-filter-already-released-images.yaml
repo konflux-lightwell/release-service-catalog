@@ -1,0 +1,181 @@
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: test-filter-already-released-images
+spec:
+  description: |
+    Smoke test for the filter-already-released-images task.  Creates a
+    snapshot with two components: one fully released (all tags match) and
+    one not yet released (tag resolve fails).  Verifies that the released
+    component is filtered out and skip_release is "false".
+  params:
+    - name: ociStorage
+      description: The OCI repository where the Trusted Artifacts are stored.
+      type: string
+    - name: ociArtifactExpiresAfter
+      description: Expiration date for the trusted artifacts created in the
+        OCI repository. An empty string means the artifacts do not expire.
+      type: string
+      default: "1d"
+    - name: orasOptions
+      description: oras options to pass to Trusted Artifacts calls
+      type: string
+      default: "--insecure"
+    - name: trustedArtifactsDebug
+      description: Flag to enable debug logging in trusted artifacts. Set to a non-empty string to enable.
+      type: string
+      default: ""
+    - name: dataDir
+      description: The location where data will be stored
+      type: string
+  tasks:
+    - name: setup
+      taskSpec:
+        results:
+          - name: sourceDataArtifact
+            type: string
+        volumes:
+          - name: workdir
+            emptyDir: {}
+        stepTemplate:
+          volumeMounts:
+            - mountPath: /var/workdir
+              name: workdir
+          env:
+            - name: IMAGE_EXPIRES_AFTER
+              value: $(params.ociArtifactExpiresAfter)
+            - name: "ORAS_OPTIONS"
+              value: "$(params.orasOptions)"
+            - name: "DEBUG"
+              value: "$(params.trustedArtifactsDebug)"
+        steps:
+          - name: setup-values
+            image: quay.io/konflux-ci/release-service-utils@sha256:83fefd72e54d3b87017a12dbe483db52ad1c692e1aec9ab042c1382a0c41e550
+            script: |
+              #!/usr/bin/env bash
+              set -eux
+
+              mkdir -p "$(params.dataDir)/$(context.pipelineRun.uid)"
+              cat > "$(params.dataDir)/$(context.pipelineRun.uid)/snapshot.json" << 'EOF'
+              {
+                "application": "test-app",
+                "components": [
+                  {
+                    "name": "comp-released",
+                    "containerImage": "registry.io/comp-released@sha256:released111",
+                    "repositories": [
+                      {
+                        "url": "target.io/target-released",
+                        "tags": ["v1.0"]
+                      }
+                    ]
+                  },
+                  {
+                    "name": "comp-kept",
+                    "containerImage": "registry.io/comp-kept@sha256:kept222",
+                    "repositories": [
+                      {
+                        "url": "target.io/target-kept",
+                        "tags": ["v1.0"]
+                      }
+                    ]
+                  }
+                ]
+              }
+              EOF
+          - name: create-trusted-artifact
+            ref:
+              name: create-trusted-artifact
+            params:
+              - name: ociStorage
+                value: $(params.ociStorage)
+              - name: workDir
+                value: $(params.dataDir)
+              - name: sourceDataArtifact
+                value: $(results.sourceDataArtifact.path)
+    - name: run-task
+      taskRef:
+        name: filter-already-released-images
+      params:
+        - name: snapshotPath
+          value: "$(context.pipelineRun.uid)/snapshot.json"
+        - name: ociStorage
+          value: $(params.ociStorage)
+        - name: orasOptions
+          value: $(params.orasOptions)
+        - name: sourceDataArtifact
+          value: "$(tasks.setup.results.sourceDataArtifact)=$(params.dataDir)"
+        - name: dataDir
+          value: $(params.dataDir)
+        - name: trustedArtifactsDebug
+          value: $(params.trustedArtifactsDebug)
+        - name: taskGitUrl
+          value: "http://localhost"
+        - name: taskGitRevision
+          value: "main"
+      runAfter:
+        - setup
+    - name: check-result
+      params:
+        - name: skip_release
+          value: $(tasks.run-task.results.skip_release)
+        - name: sourceDataArtifact
+          value: "$(tasks.run-task.results.sourceDataArtifact)=$(params.dataDir)"
+      taskSpec:
+        params:
+          - name: skip_release
+            type: string
+          - name: sourceDataArtifact
+            type: string
+        volumes:
+          - name: workdir
+            emptyDir: {}
+        stepTemplate:
+          volumeMounts:
+            - mountPath: /var/workdir
+              name: workdir
+          env:
+            - name: IMAGE_EXPIRES_AFTER
+              value: $(params.ociArtifactExpiresAfter)
+            - name: "ORAS_OPTIONS"
+              value: "$(params.orasOptions)"
+            - name: "DEBUG"
+              value: "$(params.trustedArtifactsDebug)"
+        steps:
+          - name: use-trusted-artifact
+            ref:
+              name: use-trusted-artifact
+            params:
+              - name: workDir
+                value: $(params.dataDir)
+              - name: sourceDataArtifact
+                value: $(params.sourceDataArtifact)
+          - name: check-result
+            image: quay.io/konflux-ci/release-service-utils@sha256:83fefd72e54d3b87017a12dbe483db52ad1c692e1aec9ab042c1382a0c41e550
+            script: |
+              #!/usr/bin/env bash
+              set -eux
+
+              SNAPSHOT_FILE="$(params.dataDir)/$(context.pipelineRun.uid)/snapshot.json"
+
+              if [ "$(params.skip_release)" != "false" ]; then
+                echo "ERROR: skip_release should be 'false', got '$(params.skip_release)'"
+                exit 1
+              fi
+
+              REMAINING=$(jq '.components | length' "${SNAPSHOT_FILE}")
+              if [ "${REMAINING}" -ne 1 ]; then
+                echo "ERROR: Expected 1 remaining component, got ${REMAINING}"
+                exit 1
+              fi
+
+              KEPT_NAME=$(jq -r '.components[0].name' "${SNAPSHOT_FILE}")
+              if [ "${KEPT_NAME}" != "comp-kept" ]; then
+                echo "ERROR: Expected kept component 'comp-kept', got '${KEPT_NAME}'"
+                exit 1
+              fi
+
+              echo "All assertions passed."
+      runAfter:
+        - run-task

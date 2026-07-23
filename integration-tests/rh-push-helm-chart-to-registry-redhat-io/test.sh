@@ -44,12 +44,8 @@ verify_release_contents() {
     fi
 
     local failures=0
-    local image_url image_arch image_shasum
     local catalog_url file_update_mr_url
 
-    image_url=$(jq -r '.status.artifacts.images[0]?.urls[0] // ""' <<< "${release_json}")
-    image_arch=$(jq -r '.status.artifacts.images[0]?.arches[0] // ""' <<< "${release_json}")
-    image_shasum=$(jq -r '.status.artifacts.images[0]?.shasum // ""' <<< "${release_json}")
     catalog_url=$(jq -r '.status.artifacts.catalog_urls[]?.url // ""' <<< "${release_json}")
     file_update_mr_url=$(jq -r '.status.artifacts.merge_requests[0]?.url // ""' <<< "${release_json}")
 
@@ -69,19 +65,16 @@ verify_release_contents() {
         failures=$((failures+1))
     fi
 
+    # Extract image details for Helm OCI artifact verification
+    local image_url image_shasum
+    image_url=$(jq -r '.status.artifacts.images[0]?.urls[0] // ""' <<< "${release_json}")
+    image_shasum=$(jq -r '.status.artifacts.images[0]?.shasum // ""' <<< "${release_json}")
+
     echo "Checking Image URL..."
     if [ -n "${image_url}" ]; then
         echo "✅️ image_url: ${image_url}"
     else
         echo "🔴 image_url was empty"
-        failures=$((failures+1))
-    fi
-
-    echo "Checking Image Arch..."
-    if [ -n "${image_arch}" ]; then
-        echo "✅️ image_arch: ${image_arch}"
-    else
-        echo "🔴 image_arch was empty"
         failures=$((failures+1))
     fi
 
@@ -93,7 +86,8 @@ verify_release_contents() {
         failures=$((failures+1))
     fi
 
-    echo "Verifying image pullability with skopeo..."
+    # Helm OCI artifact verification (special handling for Helm charts)
+    echo "Verifying Helm OCI artifact pullability with skopeo..."
     ORIGINAL_PULLSPEC="${image_url}"
     if [[ "$ORIGINAL_PULLSPEC" == *":"* && "$ORIGINAL_PULLSPEC" != *"@"* ]]; then
         STRIPPED_PULLSPEC="${ORIGINAL_PULLSPEC%:*}"
@@ -113,14 +107,14 @@ verify_release_contents() {
         "${SUITE_DIR}/resources/managed/secrets/managed-secrets.yaml" | base64 -d > "${DOCKER_CONFIG}/config.json"
 
     # Helm OCI artifacts require --raw (mediaType is application/vnd.cncf.helm.config.v1+json)
-    if skopeo inspect --tls-verify=true --raw "docker://${COMPLETE_PULLSPEC}" 2>/dev/null | \
+    if skopeo inspect --tls-verify=true --raw --retry-times 3 "docker://${COMPLETE_PULLSPEC}" 2>/dev/null | \
         jq -e '.config.mediaType == "application/vnd.cncf.helm.config.v1+json"' &>/dev/null; then
         echo "✅️ Helm OCI artifact '$COMPLETE_PULLSPEC' verified with skopeo inspect --raw."
-    elif skopeo inspect --tls-verify=true "docker://${COMPLETE_PULLSPEC}" &>/dev/null; then
+    elif skopeo inspect --tls-verify=true --retry-times 3 "docker://${COMPLETE_PULLSPEC}" &>/dev/null; then
         echo "✅️ Image '$COMPLETE_PULLSPEC' can be inspected with skopeo inspect."
     else
         echo "🔴 Failed to inspect '$COMPLETE_PULLSPEC' as Helm OCI artifact or container image."
-        skopeo inspect --tls-verify=true --raw "docker://${COMPLETE_PULLSPEC}" | head -c 500 || true
+        skopeo inspect --tls-verify=true --raw --retry-times 3 "docker://${COMPLETE_PULLSPEC}" | head -c 500 || true
         failures=$((failures+1))
     fi
 

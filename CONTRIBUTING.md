@@ -103,6 +103,7 @@ Before a pull request can be merged:
 
 Most tasks in this repo use the release-service-utils image defined in [the release-service-utils repo](https://github.com/konflux-ci/release-service-utils).
 When referencing this image, the image URL must be in digest form, for example: `quay.io/konflux-ci/release-service-utils@sha256:...`, where `sha256:...` is the image digest.
+The digest must point to a multi-arch manifest list and not a single-arch image for the release-service-utils image.
 
 This repo uses [MintMaker](https://konflux-ci.dev/docs/mintmaker/user/) to automatically update images referenced in tasks, stepactions, and pipelines. The MintMaker configuration is defined in [renovate.json](renovate.json).
 
@@ -145,7 +146,7 @@ Running `.github/scripts/check_readme.sh` locally is recommended to find these e
 If you wish to update a task, pipeline, or task/pipeline parameter description, do **not** manually change the README.md file.
 
 Instead, you should change the descriptions in the `yaml` file associated with the task/pipeline, and then run `.github/scripts/readme_generator.sh`
-with the changed task/pipeline directories as arguments. This is because the task/pipeline `yaml` file is considered the source of truth for each 
+with the changed task/pipeline directories as arguments. This is because the task/pipeline `yaml` file is considered the source of truth for each
 task/pipeline README.md file. If you manually change the README.md file without updating the yaml, `check_readme.sh` will fail and `readme_generator.sh`
 will overwrite your changes. You should never have to update the README.md file manually.
 
@@ -334,7 +335,7 @@ source .env.testing
 
 # Run tests
 ./scripts/run-local-tests.sh                              # Auto-detect changes
-./scripts/run-local-tests.sh --pr-mode                    # Test PR changes  
+./scripts/run-local-tests.sh --pr-mode                    # Test PR changes
 ./scripts/run-local-tests.sh tasks/managed/add-fbc-contribution  # Specific task
 ```
 
@@ -396,12 +397,6 @@ PR paired with an e2e change (documented [here](https://github.com/redhat-appstu
 but the catalog PR pairing process will be complete.
 * Pairing is typically only required for breaking changes, so once the catalog PR is merged, things are now in a broken state. This should be resolved ASAP by
 marking the release-service PR as ready, merging it, and promoting its results to the infra-deployments overlays.
-
-### Data Keys Schema
-
-This repository maintains a json schema for the data key used in various tasks in this repo. It is stored [here](schema/dataKeys.json).
-
-If your change adds or removes a key to the data file, the schema must be updated accordingly as part of your pull request.
 
 ### Checkton check
 

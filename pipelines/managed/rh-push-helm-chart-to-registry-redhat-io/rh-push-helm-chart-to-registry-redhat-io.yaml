@@ -167,8 +167,6 @@ spec:
       params:
         - name: dataPath
           value: "$(tasks.collect-data.results.data)"
-        - name: schema
-          value: $(params.taskGitUrl)/raw/$(params.taskGitRevision)/schema/dataKeys.json
         - name: systems
           value: |
             [
@@ -256,7 +254,7 @@ spec:
             NAME=$(echo $(params.release) | cut -d '/' -f 2)
 
             AUTHOR=$(kubectl get release ${NAME} -n ${NAMESPACE} \
-            -o=jsonpath='{.status.attribution.author}' | tee $(results.output-result.path))
+            -o=jsonpath='{.status.attribution.author}' | tee /tekton/results/output-result)
 
             if [[ ${AUTHOR} == "" ]] ; then exit 1 ; fi
       runAfter:
@@ -328,7 +326,7 @@ spec:
           - name: url
             value: https://github.com/conforma/tekton-catalog
           - name: revision
-            value: "f20c7a8c15a71c9462b11e5a28f8907a29c7075a"
+            value: "2c1963225e8563194a8dce7f659c71bd866da426"
           - name: pathInRepo
             value: "tasks/verify-conforma-konflux-ta/0.1/verify-conforma-konflux-ta.yaml"
       params:
@@ -426,8 +424,8 @@ spec:
         - name: taskGitRevision
           value: "$(params.taskGitRevision)"
       runAfter:
-        - rh-sign-image
-    - name: rh-sign-image
+        - rh-direct-sign-image
+    - name: rh-direct-sign-image
       timeout: "6h00m0s"
       retries: 3
       taskRef:
@@ -438,19 +436,15 @@ spec:
           - name: revision
             value: $(params.taskGitRevision)
           - name: pathInRepo
-            value: tasks/managed/rh-sign-image/rh-sign-image.yaml
+            value: tasks/managed/rh-direct-sign-image/rh-direct-sign-image.yaml
       params:
         - name: snapshotPath
           value: "$(tasks.collect-data.results.snapshotSpec)"
         - name: dataPath
           value: "$(tasks.collect-data.results.data)"
-        - name: releasePlanAdmissionPath
-          value: "$(tasks.collect-data.results.releasePlanAdmission)"
         - name: requester
           value: $(tasks.extract-requester-from-release.results.output-result)
         - name: requestTimeout
-          # The RADAS timeout when it fails to receive a response is 5 mins.
-          # Give RADAS enough time to retry its request.
           value: 1800
         - name: pipelineRunUid
           value: $(context.pipelineRun.uid)

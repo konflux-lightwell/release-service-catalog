@@ -165,8 +165,6 @@ spec:
       params:
         - name: dataPath
           value: "$(tasks.collect-data.results.data)"
-        - name: schema
-          value: $(params.taskGitUrl)/raw/$(params.taskGitRevision)/schema/dataKeys.json
         - name: systems
           value: |
             [
@@ -236,7 +234,7 @@ spec:
           - name: url
             value: https://github.com/conforma/tekton-catalog
           - name: revision
-            value: "f20c7a8c15a71c9462b11e5a28f8907a29c7075a"
+            value: "2c1963225e8563194a8dce7f659c71bd866da426"
           - name: pathInRepo
             value: "tasks/verify-conforma-konflux-ta/0.1/verify-conforma-konflux-ta.yaml"
       params:
@@ -392,12 +390,12 @@ spec:
             NAME=$(echo $(params.release) | cut -d '/' -f 2)
 
             AUTHOR=$(kubectl get release ${NAME} -n ${NAMESPACE} \
-            -o=jsonpath='{.status.attribution.author}' | tee $(results.output-result.path))
+            -o=jsonpath='{.status.attribution.author}' | tee /tekton/results/output-result)
 
             if [[ ${AUTHOR} == "" ]] ; then exit 1 ; fi
       runAfter:
         - verify-access-to-resources
-    - name: sign-index-image
+    - name: direct-sign-index-image
       retries: 3
       taskRef:
         resolver: "git"
@@ -407,12 +405,10 @@ spec:
           - name: revision
             value: $(params.taskGitRevision)
           - name: pathInRepo
-            value: tasks/managed/sign-index-image/sign-index-image.yaml
+            value: tasks/managed/direct-sign-index-image/direct-sign-index-image.yaml
       params:
         - name: dataPath
           value: "$(tasks.collect-data.results.data)"
-        - name: releasePlanAdmissionPath
-          value: "$(tasks.collect-data.results.releasePlanAdmission)"
         - name: requester
           value: $(tasks.extract-requester-from-release.results.output-result)
         - name: pipelineRunUid
@@ -494,8 +490,6 @@ spec:
           - name: pathInRepo
             value: tasks/managed/extract-index-image/extract-index-image.yaml
       params:
-        - name: inputDataFile
-          value: $(tasks.add-fbc-contribution-to-index-image.results.requestResultsFile)
         - name: resultsDirPath
           value: "$(tasks.collect-data.results.resultsDir)"
         - name: ociStorage
@@ -538,7 +532,7 @@ spec:
         - name: ociStorage
           value: $(params.ociStorage)
         - name: sourceDataArtifact
-          value: "$(tasks.sign-index-image.results.sourceDataArtifact)"
+          value: "$(tasks.direct-sign-index-image.results.sourceDataArtifact)"
         - name: dataDir
           value: $(params.dataDir)
         - name: trustedArtifactsDebug
@@ -552,7 +546,7 @@ spec:
           operator: in
           values: ["true"]
       runAfter:
-        - sign-index-image
+        - direct-sign-index-image
         - rh-sign-index-image-cosign
     - name: collect-index-images
       taskRef:
