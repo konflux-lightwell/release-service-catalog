@@ -289,8 +289,7 @@ spec:
         - name: keysToExtract
           value: |
             [
-              {"resultIndex": 0, "key": ".components[0].containerImage"},
-              {"resultIndex": 1, "key": ".components[0].build.results.INDEX_BUILD_JSON_ARTIFACT"}
+              {"resultIndex": 0, "key": ".components[0].containerImage"}
             ]
         - name: ociStorage
           value: $(params.ociStorage)
@@ -435,7 +434,7 @@ spec:
         - sign
       params:
         - name: INDEX_BASEDIR
-          value: $(tasks.collect-snapshot-params.results.extractedValues[1])
+          value: "$(tasks.extract.results.ATTACHMENT_DIR)"
         - name: sourceDataArtifact
           value: $(tasks.sign.results.sourceDataArtifact)
         - name: ociStorage
@@ -454,7 +453,11 @@ spec:
           value: $(params.catalogGitUrl)
         - name: catalogGitRevision
           value: $(params.catalogGitRevision)
-
+      when:
+        - input: "$(tasks.extract.results.ATTACHMENT_DIR)"
+          operator: notin
+          values:
+            - "__EMPTY__"
     - name: publish
       taskRef:
         resolver: "git"
