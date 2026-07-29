@@ -72,7 +72,7 @@ spec:
     - name: catalogGitRevision
       type: string
       description: The revision in the catalogGitUrl repo to be used
-      default: development
+      default: staging
 
     # Pipeline infrastructure — for slan-cuan domain-specific tasks
     - name: taskGitUrl
