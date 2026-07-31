@@ -98,10 +98,6 @@ spec:
         Without this flag, the extract task refuses to overwrite existing directories
       type: string
       default: "false"
-    - name: discover-attachments
-      description: Unique artifact-types to discover attachments from the oras artifact.
-      type: string
-      default: "application/vnd.redhat.gav-index-build+json"
 
     # Sign parameters
     - name: radas-umb-host
@@ -333,8 +329,6 @@ spec:
           value: $(params.registry-auth-secret)
         - name: FORCE
           value: $(params.force-extract)
-        - name: DISCOVER_ATTACHMENTS
-          value: $(params.discover-attachments)
         - name: ociStorage
           value: $(params.ociStorage)
         - name: ociArtifactExpiresAfter
