@@ -98,10 +98,6 @@ spec:
         Without this flag, the extract task refuses to overwrite existing directories
       type: string
       default: "false"
-    - name: discover-attachments
-      description: Unique artifact-types to discover attachments from the oras artifact.
-      type: string
-      default: "application/vnd.redhat.gav-index-build+json"
 
     # Sign parameters
     - name: radas-umb-host
@@ -252,8 +248,7 @@ spec:
               {"resultIndex": 3, "key": ".trustify.apiUrl"},
               {"resultIndex": 4, "key": ".trustify.ssoTokenUrl"},
               {"resultIndex": 5, "key": ".pulp.pulpDomain"},
-              {"resultIndex": 6, "key": ".pulp.secretName"},
-              {"resultIndex": 7, "key": ".pulp.osvRepository"}
+              {"resultIndex": 6, "key": ".pulp.secretName"}
             ]
         - name: ociStorage
           value: $(params.ociStorage)
@@ -334,8 +329,6 @@ spec:
           value: $(params.registry-auth-secret)
         - name: FORCE
           value: $(params.force-extract)
-        - name: DISCOVER_ATTACHMENTS
-          value: $(params.discover-attachments)
         - name: ociStorage
           value: $(params.ociStorage)
         - name: ociArtifactExpiresAfter
@@ -427,39 +420,6 @@ spec:
         - name: catalogGitRevision
           value: $(params.catalogGitRevision)
 
-    - name: generate-security-metadata
-      taskRef:
-        resolver: "git"
-        params:
-          - name: url
-            value: https://github.com/konflux-lightwell/slan-cuan.git
-          - name: revision
-            value: main
-          - name: pathInRepo
-            value: tekton/tasks/slan-cuan-generate-security-metadata.yaml
-      runAfter:
-        - sign
-      params:
-        - name: INDEX_BASEDIR
-          value: "$(tasks.extract.results.ATTACHMENT_DIR)"
-        - name: sourceDataArtifact
-          value: $(tasks.sign.results.sourceDataArtifact)
-        - name: ociStorage
-          value: $(params.ociStorage)
-        - name: ociArtifactExpiresAfter
-          value: $(params.ociArtifactExpiresAfter)
-        - name: trustedArtifactsDebug
-          value: $(params.trustedArtifactsDebug)
-        - name: orasOptions
-          value: $(params.orasOptions)
-        - name: caTrustConfigMapName
-          value: $(params.caTrustConfigMapName)
-        - name: caTrustConfigMapKey
-          value: $(params.caTrustConfigMapKey)
-        - name: catalogGitUrl
-          value: $(params.catalogGitUrl)
-        - name: catalogGitRevision
-          value: $(params.catalogGitRevision)
     - name: publish
       taskRef:
         resolver: "git"
@@ -473,7 +433,6 @@ spec:
       runAfter:
         - sign
         - collect-task-params
-        - generate-security-metadata
       params:
         - name: PULP_URL
           value: $(tasks.collect-task-params.results.extractedValues[0])
@@ -491,10 +450,8 @@ spec:
           value: $(params.publish-insecure)
         - name: CA_CERT_SECRET
           value: $(params.publish-ca-cert-secret)
-        - name: PULP_FILE_REPOSITORY
-          value: $(tasks.collect-task-params.results.extractedValues[7])
         - name: sourceDataArtifact
-          value: $(tasks.generate-security-metadata.results.sourceDataArtifact)
+          value: $(tasks.sign.results.sourceDataArtifact)
         - name: ociStorage
           value: $(params.ociStorage)
         - name: orasOptions
