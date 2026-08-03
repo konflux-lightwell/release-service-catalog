@@ -402,6 +402,8 @@ spec:
           value: $(tasks.collect-snapshot-params.results.extractedValues[0])
         - name: SIGNING_KEY
           value: $(tasks.collect-task-params.results.extractedValues[2])
+        - name: DIRECT_SIGN
+          value: "true"
         - name: RADAS_UMB_HOST
           value: $(params.radas-umb-host)
         - name: REQUESTER_ID
