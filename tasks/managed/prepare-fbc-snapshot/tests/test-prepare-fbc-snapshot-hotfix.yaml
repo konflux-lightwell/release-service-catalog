@@ -97,8 +97,7 @@ spec:
                   "fromIndex": "quay.io/redhat/redhat-operator-index:{{ OCP_VERSION }}",
                   "targetIndex": "quay.io/test/target-index:{{ OCP_VERSION }}",
                   "hotfix": true,
-                  "issueId": "RELEASE-1234",
-                  "timestampFormat": "%Y%m%d-%H%M%S"
+                  "issueId": "RELEASE-1234"
                 }
               }
               EOF
@@ -200,15 +199,15 @@ spec:
               jq . "$SNAPSHOT_PATH"
 
               # Get the target index from the updated snapshot (from ocpVersionMetadata)
-              TARGET_INDEX=$(jq -r '.components[0].ocpVersionMetadata[0].targetIndex' "$SNAPSHOT_PATH")
-              echo "Target index: $TARGET_INDEX"
+              TARGET_INDEX=$(jq -r '.components[0].ocpVersionMetadata[0].targetIndex' "${SNAPSHOT_PATH}")
+              echo "Target index: ${TARGET_INDEX}"
 
-              # Verify hotfix suffix pattern: v4.12-RELEASE-1234-timestamp
-              if [[ "$TARGET_INDEX" =~ v[0-9]+\.[0-9]+-RELEASE-1234-[0-9]{8}-[0-9]{6} ]]; then
-                echo "✅ Hotfix suffix correctly applied"
+              # Verify hotfix suffix pattern: v4.12-RELEASE-1234-<10-digit-timestamp>
+              if [[ "${TARGET_INDEX}" =~ v[0-9]+\.[0-9]+-RELEASE-1234-[0-9]{10}$ ]]; then
+                echo "✅ Hotfix suffix correctly applied with 10-digit timestamp"
               else
                 echo "❌ Hotfix suffix not found or incorrect format"
-                echo "Expected pattern: v4.12-RELEASE-1234-YYYYMMDD-HHMMSS"
+                echo "Expected pattern: v4.12-RELEASE-1234-<10-digit-timestamp>"
                 echo "Actual: $TARGET_INDEX"
                 exit 1
               fi

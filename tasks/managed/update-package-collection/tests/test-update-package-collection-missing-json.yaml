@@ -74,7 +74,7 @@ spec:
                   ]
                 },
                 "releaseNotes": {
-                  "product_short_name": "test-product"
+                  "product_short_name": "rhel"
                 },
                 "intention": "production"
               }

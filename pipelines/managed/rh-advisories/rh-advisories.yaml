@@ -255,7 +255,7 @@ spec:
             NAME=$(echo $(params.release) | cut -d '/' -f 2)
 
             AUTHOR=$(kubectl get release ${NAME} -n ${NAMESPACE} \
-            -o=jsonpath='{.status.attribution.author}' | tee /tekton/results/output-result)
+            -o=jsonpath='{.status.attribution.author}' | tee $(results.output-result.path))
 
             if [[ ${AUTHOR} == "" ]] ; then exit 1 ; fi
       runAfter:
@@ -380,7 +380,7 @@ spec:
           - name: url
             value: https://github.com/conforma/tekton-catalog
           - name: revision
-            value: "2c1963225e8563194a8dce7f659c71bd866da426"
+            value: "38002d483c4b405e78806ed2d8c9f4c01e91e429"
           - name: pathInRepo
             value: "tasks/verify-conforma-konflux-ta/0.1/verify-conforma-konflux-ta.yaml"
       params:
@@ -403,7 +403,16 @@ spec:
           value: "$(tasks.filter-already-released-advisory-images.results.sourceDataArtifact)"
         - name: TRUSTED_ARTIFACTS_DEBUG
           value: "$(params.trustedArtifactsDebug)"
+        - name: CERTIFICATE_IDENTITY
+          value: "$(tasks.collect-signing-params.results.tektonChainsIdentity)"
+        - name: CERTIFICATE_OIDC_ISSUER
+          value: "$(tasks.collect-signing-params.results.defaultOIDCIssuer)"
+        - name: TUF_MIRROR
+          value: "$(tasks.collect-signing-params.results.tufUrl)"
+        - name: REKOR_HOST
+          value: "$(tasks.collect-signing-params.results.rekorUrl)"
       runAfter:
+        - collect-signing-params
         - filter-already-released-advisory-images
         - collect-task-params
         - check-labels

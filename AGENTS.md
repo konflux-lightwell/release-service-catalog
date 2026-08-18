@@ -16,6 +16,7 @@ This is the Release Service Catalog - a collection of Tekton resources (Tasks, P
 - **Commits**: Conventional commits enforced by gitlint, scope is a Jira ticket ID: `feat(JIRA-1234): message`, `fix(JIRA-1234): message`
 - **YAML style**: 120-char max, consistent indentation, `---` document start, max 1 empty line
 - **Tekton tasks**: Trusted Artifacts tasks with non-`release-service-utils` images MUST set `stepTemplate.securityContext.runAsUser: 1001`; all tasks SHOULD specify compute resource requirements
+- **New tasks**: implement logic as a standalone script (usually Python) in the [release-service-utils repo](https://github.com/konflux-ci/release-service-utils), referenced via `command`, rather than inline `script` shell code — see [RELEASE-2455](https://redhat.atlassian.net/browse/RELEASE-2455)
 - **Vault files** (`.*vault.*\.(yaml|yml)$`): MUST be encrypted with `ansible-vault` before commit
 - **READMEs** under `tasks/` and `pipelines/`: auto-generated, do not edit by hand
 
@@ -57,7 +58,9 @@ Test locally first. Use `--pr-mode` for pre-merge validation. Check `test-result
 - **jq flags**: `-r` for raw output, `-c` for compact, `-e` to exit non-zero on false/null
 - **Tekton results**: `echo -n "value" > "$(results.name.path)"` — always `-n` to avoid trailing newlines
 - **curl**: use `--retry 3`, `-s` for silent, `--fail-with-body` for error handling; pipe to `jq -r` for parsing
-- **Error handling**: trap EXIT to write success/failure to results; always `exit 0` (let Tekton results carry status)
+- **Error handling**: internal tasks MUST always `exit 0` and write success/failure to `$(results.result.path)`.
+  Use a `trap EXIT` handler or write the result explicitly at each exit point. A non-zero exit prevents Tekton
+  from setting results that the calling managed task needs. Managed and collector tasks can use non-zero exit codes as appropriate to signal errors
 - **Secrets**: `set +x` before using sensitive values, re-enable after; read from mounted files, not env vars
 - **Cleanup**: `mktemp` + `trap 'rm -f "${TEMP_FILE}"' EXIT`; use `pushd`/`popd` for directory changes
 
