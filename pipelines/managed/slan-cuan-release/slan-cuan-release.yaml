@@ -253,7 +253,10 @@ spec:
               {"resultIndex": 4, "key": ".trustify.ssoTokenUrl"},
               {"resultIndex": 5, "key": ".pulp.pulpDomain"},
               {"resultIndex": 6, "key": ".pulp.secretName"},
-              {"resultIndex": 7, "key": ".pulp.osvRepository"}
+              {"resultIndex": 7, "key": ".pulp.osvRepository"},
+              {"resultIndex": 8, "key": ".osidb.apiUrl"},
+              {"resultIndex": 9, "key": ".osidb.kerberosPrincipal"},
+              {"resultIndex": 10, "key": ".osidb.kerberosKeytabPath"}
             ]
         - name: ociStorage
           value: $(params.ociStorage)
@@ -444,6 +447,12 @@ spec:
       params:
         - name: INDEX_BASEDIR
           value: "$(tasks.extract.results.ATTACHMENT_DIR)"
+        - name: OSIDB_API_URL
+          value: $(tasks.collect-task-params.results.extractedValues[8])
+        - name: OSIDB_KERBEROS_PRINCIPAL
+          value: $(tasks.collect-task-params.results.extractedValues[9])
+        - name: OSIDB_KERBEROS_KEYTAB_PATH
+          value: $(tasks.collect-task-params.results.extractedValues[10])
         - name: sourceDataArtifact
           value: $(tasks.sign.results.sourceDataArtifact)
         - name: ociStorage
