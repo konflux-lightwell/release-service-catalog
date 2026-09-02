@@ -308,8 +308,12 @@ spec:
           - name: pathInRepo
             value: tekton/tasks/push-source-to-lightwell-builds/0.1/push-source-to-lightwell-builds.yaml
       params:
-        - name: sourcePath
-          value: /var/workdir/content/files
+        - name: sourceDataArtifact
+          value: "$(tasks.push-py-pulp.results.sourceDataArtifact)"
+        - name: dataDir
+          value: /var/workdir/content
+        - name: filesDir
+          value: files
         - name: packageName
           value: $(tasks.collect-task-params.results.extractedValues[9])
         - name: packageVersion
@@ -328,6 +332,12 @@ spec:
           value: $(params.signingSecretName)
         - name: gitSecretName
           value: $(tasks.collect-task-params.results.extractedValues[8])
+        - name: taskGitUrl
+          value: $(params.taskGitUrl)
+        - name: taskGitRevision
+          value: $(params.taskGitRevision)
+        - name: ociStorage
+          value: $(params.ociStorage)
       runAfter:
         - push-py-pulp
         - collect-task-params
