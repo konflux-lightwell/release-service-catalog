@@ -15,9 +15,10 @@ shopt -s nullglob
 
 WORKSPACE_TEMPLATE=${BASH_SOURCE%/*/*}/resources/workspace-template.yaml
 
-# For tasks that use a step command/args referencing a .py file, merge test mocks
-# into that step: prefer tests/mocks.yaml (render_python_task_mocks_from_yaml.py)
-# else tests/mocks.sh (legacy: body after shebang). Task-specific hooks still run after.
+# For tasks that use a step command/args referencing a .py file or python -m module,
+# merge test mocks into that step: prefer tests/mocks.yaml
+# (render_python_task_mocks_from_yaml.py) else tests/mocks.sh (legacy: body after
+# shebang). Task-specific hooks still run after.
 apply_python_command_mocks_merge() {
   local task_copy="$1"
   local tests_dir="$2"
@@ -49,7 +50,7 @@ apply_python_command_mocks_merge() {
     for w in "${entrypoint_argv[@]}"; do
       joined+=" $w"
     done
-    [[ "$joined" == *".py"* ]] || continue
+    [[ "$joined" == *".py"* ]] || [[ "$joined" == *"python"*" -m "* ]] || [[ "${command_from_task[0]}" == "python"* ]] || continue
 
     if [[ -f "$mocks_yaml" ]]; then
       echo "  Merging tests/mocks.yaml into step $i (Python entrypoint) for task tests"
@@ -62,10 +63,13 @@ apply_python_command_mocks_merge() {
       echo '#!/usr/bin/env bash'
       echo "TASK_ENTRYPOINT=("
       for w in "${entrypoint_argv[@]}"; do
-        # Do not use printf %q for Tekton placeholders: single-quoted %q output
-        # prevents Tekton from rewriting $(params.*) inside spec.steps[].script.
+        # Tekton placeholders must stay unescaped so Tekton can substitute them
+        # (printf %q would escape the '$').  Use single quotes so that JSON
+        # values with embedded double quotes survive bash array construction.
+        # Tekton does raw text replacement on the whole script string before
+        # bash sees it, so single quotes do not prevent substitution.
         if [[ "$w" == *'$('* ]]; then
-          printf '  "%s"\n' "$w"
+          printf "  '%s'\n" "$w"
         else
           printf '  %q\n' "$w"
         fi

@@ -26,7 +26,7 @@ spec:
     - name: concurrentLimit
       type: string
       description: The maximum number of signing requests to run in parallel
-      default: 24
+      default: 8
     - name: pipelineRunUid
       type: string
       description: >-
@@ -93,7 +93,7 @@ spec:
     - name: signingRevision
       type: string
       description: Git revision (branch, tag, or commit) in the signing repository
-      default: "main"
+      default: "69db744bdb9c4f4df48ccf24a3baf25bd39cbf51"
     - name: signPipeline
       type: string
       description: Name of the internal pipeline to use for container signing
@@ -102,10 +102,6 @@ spec:
       type: string
       description: Service account to use for the signing pipeline
       default: "signing-pipeline-sa"
-    - name: pipelineImage
-      type: string
-      description: The image to use for the signing pipeline
-      default: quay.io/konflux-ci/signing:latest
     - name: caTrustConfigMapName
       type: string
       description: The name of the ConfigMap to read CA bundle data from
@@ -174,7 +170,7 @@ spec:
           value: $(params.sourceDataArtifact)
 
     - name: sign-image
-      image: quay.io/konflux-ci/release-service-utils@sha256:a2c2fbf89bced4c0421f6a2237f467a94fa38c0b722e4c32368c4d291dbc7323
+      image: quay.io/konflux-ci/release-service-utils@sha256:19b51294e8faf4db356d1c5ba45dd575fece40fcde081152fe4842d3e1bbb232
       computeResources:
         limits:
           memory: 4Gi
@@ -221,8 +217,6 @@ spec:
         - "$(params.signingRevision)"
         - "--concurrent-limit"
         - "$(params.concurrentLimit)"
-        - "--pipeline-image"
-        - "$(params.pipelineImage)"
         - "--submit-requests"
 
     - name: create-trusted-artifact

@@ -248,7 +248,7 @@ verify_release_contents() {
     echo ""
     echo "Verifying arches and skopeo pullability for each image..."
 
-    for i in 0 1; do
+    for i in $(seq 0 $((image_count - 1))); do
         local img_url img_shasum img_arches
         img_url=$(jq -r --argjson idx "$i" '.status.artifacts.images[$idx]?.urls[0] // ""' <<< "${release_json}")
         img_shasum=$(jq -r --argjson idx "$i" '.status.artifacts.images[$idx]?.shasum // ""' <<< "${release_json}")
@@ -256,6 +256,11 @@ verify_release_contents() {
           | map((tostring | split("/") | .[-1]))
           | unique
           | join(" ")' <<< "${release_json}")
+
+        local is_single_arch=0
+        if [[ "${img_url}" == *"component2"* ]]; then
+            is_single_arch=1
+        fi
 
         echo ""
         echo "Image ${i}: url=${img_url}, shasum=${img_shasum}, arches=${img_arches}"
@@ -266,7 +271,7 @@ verify_release_contents() {
             continue
         fi
 
-        if [ "$i" -eq 0 ]; then
+        if [ "${is_single_arch}" -eq 0 ]; then
             echo "Checking image ${i} arches include amd64 and arm64..."
             if [[ " ${img_arches} " == *" amd64 "* && " ${img_arches} " == *" arm64 "* ]]; then
                 echo "✅️ Image ${i} has required arches: ${img_arches}"
@@ -295,7 +300,7 @@ verify_release_contents() {
         echo "Verifying image ${i} pullability with skopeo..."
         if [[ "${img_shasum}" == sha256:* ]]; then
             set +e
-            if [ "$i" -eq 0 ]; then
+            if [ "${is_single_arch}" -eq 0 ]; then
                 "${SCRIPT_DIR}/scripts/skopeo-verify-image.sh" \
                     "${img_url}" "${img_shasum}" \
                     "${SUITE_DIR}/resources/managed/secrets/managed-secrets.yaml" \
@@ -327,6 +332,21 @@ verify_release_contents() {
 
     if [ -n "${mergerequest_url}" ]; then
         echo "✅️ mergerequest_url: ${mergerequest_url}"
+
+        # Validate URL format matches expected GitLab MR pattern
+        # Expected: https://gitlab.cee.redhat.com/<namespace>/<project>/-/merge_requests/<number>
+        # Note: HTTP reachability check not possible - internal GitLab is not accessible from CI
+        echo "Validating mergerequest_url format..."
+        # GitLab projects require at least namespace + project (2 path segments)
+        local min_path_segments=2
+        # Path segments exclude / ? # (URL delimiters)
+        local gitlab_mr_url_pattern="^https://gitlab\.cee\.redhat\.com(/[^/?#]+){${min_path_segments},}/-/merge_requests/[0-9]+$"
+        if echo "${mergerequest_url}" | grep -Eq -- "${gitlab_mr_url_pattern}"; then
+            echo "✅️ mergerequest_url has valid GitLab MR format"
+        else
+            echo "🔴 mergerequest_url has invalid format (expected: https://gitlab.cee.redhat.com/<org>/<project>/-/merge_requests/<number>)"
+            failures=$((failures+1))
+        fi
     else
         echo "🔴 mergerequest_url was empty!"
         failures=$((failures+1))

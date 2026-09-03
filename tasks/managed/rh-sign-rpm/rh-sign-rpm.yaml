@@ -118,7 +118,7 @@ spec:
       type: string
       description: >-
         Git revision (branch, tag, or commit) in the signing repository
-      default: "main"
+      default: "69db744bdb9c4f4df48ccf24a3baf25bd39cbf51"
     - name: PULP_SECRET_NAME
       type: string
       description: >-
@@ -549,7 +549,6 @@ spec:
         KERBEROS_KEYTAB=$(jq --exit-status -r '.signOptions.signKeytab.name // "keytab"' "${DATA_FILE}")
         KERBEROS_KEYTAB_SECRET=$(jq --exit-status -r '.signOptions.signKeytab.secret' "${DATA_FILE}")
         SIGNING_ALIAS=$(jq --exit-status -r '.signOptions.signKeyAlias.key' "${DATA_FILE}")
-        PIPELINE_IMAGE=$(jq --exit-status -r '.signOptions.signPipelineImage' "${DATA_FILE}")
         SKIP_UPLOAD_TO_PULP=$(jq --exit-status -r '.signOptions.skipUploadToPulp // "false"' "${DATA_FILE}")
         SERVICE_ACCOUNT=$(jq --exit-status -r \
             '.signOptions.signPipelineServiceAccount // "release-service-account"' "${DATA_FILE}")
@@ -757,7 +756,6 @@ spec:
 
         internal-request \
           --pipeline direct-rpm-signing \
-          -p image="${PIPELINE_IMAGE}" \
           -p artifact_json="${ARTIFACT_JSON}" \
           -p ociStorage="$(params.ociStorage)" \
           -p kerberos_principal="${KERBEROS_PRINCIPAL}" \

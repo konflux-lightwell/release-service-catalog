@@ -29,7 +29,7 @@ spec:
     - name: concurrentLimit
       type: string
       description: The maximum number of concurrent signing requests
-      default: 24
+      default: 8
     - name: ociStorage
       description: The OCI repository where the Trusted Artifacts are stored
       type: string
@@ -96,7 +96,7 @@ spec:
     - name: signingRevision
       type: string
       description: Git revision (branch, tag, or commit) in the signing repository
-      default: "main"
+      default: "69db744bdb9c4f4df48ccf24a3baf25bd39cbf51"
     - name: signPipeline
       type: string
       description: Name of the internal pipeline to use for container signing
@@ -105,10 +105,6 @@ spec:
       type: string
       description: Service account to use for the signing pipeline
       default: "signing-pipeline-sa"
-    - name: pipelineImage
-      type: string
-      description: The image to use for the signing pipeline
-      default: quay.io/konflux-ci/signing:latest
   results:
     - name: sourceDataArtifact
       type: string
@@ -167,7 +163,7 @@ spec:
         - name: sourceDataArtifact
           value: $(params.sourceDataArtifact)
     - name: direct-sign-index-image
-      image: quay.io/konflux-ci/release-service-utils@sha256:a2c2fbf89bced4c0421f6a2237f467a94fa38c0b722e4c32368c4d291dbc7323
+      image: quay.io/konflux-ci/release-service-utils@sha256:19b51294e8faf4db356d1c5ba45dd575fece40fcde081152fe4842d3e1bbb232
       computeResources:
         limits:
           memory: 1Gi
@@ -199,8 +195,6 @@ spec:
         - "$(params.requester)"
         - "--pipeline"
         - "$(params.signPipeline)"
-        - "--pipeline-image"
-        - "$(params.pipelineImage)"
         - "--service-account"
         - "$(params.signPipelineServiceAccount)"
         - "--request-timeout"

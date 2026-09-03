@@ -197,10 +197,12 @@ cleanup_resources() {
     if [ -n "$tmpDir" ] && [ -d "$tmpDir" ]; then
         echo "Deleting test resources..." | tee -a "${cleanup_log_file}"
         if [ -f "$tmpDir/tenant-resources.yaml" ]; then
-            kubectl delete -f "$tmpDir/tenant-resources.yaml" >> "${cleanup_log_file}" 2>&1
+            kubectl delete -f "$tmpDir/tenant-resources.yaml" -n "${tenant_namespace}" \
+              >> "${cleanup_log_file}" 2>&1
         fi
         if [ -f "$tmpDir/managed-resources.yaml" ]; then
-            kubectl delete -f "$tmpDir/managed-resources.yaml" >> "${cleanup_log_file}" 2>&1
+            kubectl delete -f "$tmpDir/managed-resources.yaml" -n "${managed_namespace}" \
+              >> "${cleanup_log_file}" 2>&1
         fi
         rm -rf "${tmpDir}"
     else
@@ -218,6 +220,23 @@ cleanup_resources() {
             echo "Warning: Failed to delete some Release CRs" | tee -a "${cleanup_log_file}"
     else
         echo "Skipping Release CR cleanup: uuid or tenant_namespace not set" | tee -a "${cleanup_log_file}"
+    fi
+
+    # Clean up ImageRepository objects created by the image controller for test components.
+    # These may have no ownerReferences, so they may not be cascade-deleted with the Component.
+    # Relies on PTSV_COMPONENTS so any component a suite adds is covered automatically.
+    if [ -n "$tenant_namespace" ]; then
+        for component in ${PTSV_COMPONENTS}; do
+            local _v="${component}_name"
+            local comp="${!_v}"
+            if [ -n "$comp" ]; then
+                echo "Deleting ImageRepository for component ${comp}..." | tee -a "${cleanup_log_file}"
+                kubectl delete imagerepository -n "${tenant_namespace}" \
+                    -l "appstudio.redhat.com/component=${comp}" \
+                    --ignore-not-found >> "${cleanup_log_file}" 2>&1 || \
+                    echo "Warning: Failed to delete ImageRepository for component ${comp}" | tee -a "${cleanup_log_file}"
+            fi
+        done
     fi
 
     if [ -n "$advisory_yaml_dir" ] && [ -d "$advisory_yaml_dir" ]; then
@@ -301,8 +320,13 @@ setup_namespaces() {
       log_error "Tenant namespace ${tenant_namespace} does not exist." 2
     fi
     set -eo pipefail # Re-enable exit on error
-    kubectl config set-context --current --namespace="$tenant_namespace"
-    echo "Namespaces setup complete. Current namespace set to ${tenant_namespace}."
+    # In-cluster auth has no kubeconfig current-context. Later kubectl calls pass -n.
+    if [ -n "${KUBECONFIG:-}" ]; then
+      kubectl config set-context --current --namespace="${tenant_namespace}"
+      echo "Namespaces setup complete. Current namespace set to ${tenant_namespace}."
+    else
+      echo "Namespaces setup complete. No KUBECONFIG; kubectl will use -n flags."
+    fi
 }
 
 # Function to resolve symlinks in a directory for kustomize compatibility
@@ -349,7 +373,7 @@ create_kubernetes_resources() {
     local max_retries=5
     local attempt
     for attempt in $(seq 1 "${max_retries}"); do
-        if kubectl create -f "$tmpDir/tenant-resources.yaml"; then
+        if kubectl create -f "$tmpDir/tenant-resources.yaml" -n "${tenant_namespace}"; then
             break
         fi
         if [ "${attempt}" -eq "${max_retries}" ]; then
@@ -362,7 +386,7 @@ create_kubernetes_resources() {
     echo "Building and applying managed resources..."
     kustomize build "$tmpDir/managed" | envsubst > "$tmpDir/managed-resources.yaml"
     for attempt in $(seq 1 "${max_retries}"); do
-        if kubectl apply -f "$tmpDir/managed-resources.yaml"; then
+        if kubectl apply -f "$tmpDir/managed-resources.yaml" -n "${managed_namespace}"; then
             break
         fi
         if [ "${attempt}" -eq "${max_retries}" ]; then

@@ -132,7 +132,7 @@ spec:
         - name: sourceDataArtifact
           value: $(params.sourceDataArtifact)
     - name: run-script
-      image: quay.io/konflux-ci/release-service-utils@sha256:0b35e861c83b9c1141e3a8d7a8924cc9c4ae0b09dc87938971eee66ee9b9aaaf
+      image: quay.io/konflux-ci/release-service-utils@sha256:d3bb0f5a3ff85e30de88cb65953811bb34cc003942750dfc2f97b37a8915726b
       computeResources:
         limits:
           memory: 512Mi
@@ -141,7 +141,7 @@ spec:
           cpu: 650m
       script: |
         #!/usr/bin/env bash
-        set -ex
+        set -exo pipefail
 
         TASK_LABEL="internal-services.appstudio.openshift.io/group-id"
         TASK_ID=$(context.taskRun.uid)
@@ -259,7 +259,8 @@ spec:
           --no-headers -o custom-columns=":metadata.name" \
           --sort-by=.metadata.creationTimestamp | tail -1)
         if [ -z "${NAME}" ]; then
-          echo "Warning: Unable to get InternalRequest name"
+          echo "ERROR: Unable to get InternalRequest name"
+          exit 1
         fi
 
         results=$(kubectl get internalrequest "${NAME}" -o=jsonpath='{.status.results}')
