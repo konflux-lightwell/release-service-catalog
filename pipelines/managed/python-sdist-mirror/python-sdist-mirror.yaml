@@ -10,13 +10,14 @@ metadata:
     app.kubernetes.io/version: "0.1"
 spec:
   description: >-
-    Phase 1 Managed Release Pipeline: mirrors ingested Python sdists and signed provenance
-    from a Snapshot OCI artifact into the canonical internal git repository
-    (gitlab.cee.redhat.com/lightwell/lightwell-builds/pypi.org-<pkg>).
+    Phase 1 Managed Release Pipeline: evaluates ingested Python sdists from a Snapshot OCI artifact.
 
-    Unlike wheel release pipelines, this pipeline does NOT perform wheel signing or Pulp
-    wheel uploads; it strictly evaluates Conforma / EC policy and pushes the source tree
-    and provenance to GitLab.
+    Source mirroring is intentionally disabled until the taisce-cuan task and interface are available at
+    a reviewed immutable revision. This pipeline must not resolve the unverified archive-sources task.
+    The source-origin sidecar remains the authoritative input for future RHTL/PyPI integration; RHTL
+    parameters are not required for the PyPI flow.
+
+    Unlike wheel release pipelines, this pipeline does NOT perform wheel signing or Pulp wheel uploads.
 
   params:
     - name: release
@@ -51,16 +52,18 @@ spec:
       default: "https://github.com/konflux-lightwell/release-service-catalog.git"
     - name: taskGitRevision
       type: string
-      description: Git revision for release tasks.
-      default: "development-python"
-    - name: taisceCuanGitUrl
+      description: >-
+        Required full 40-character immutable commit SHA for the catalog commit containing every resolver path above;
+        mutable branches and abbreviated SHAs are rejected by review and deployment policy.
+      default: "b100355bb7a9a4c7d77c759037493d1c6dc3d584"
+    - name: sourceOriginType
       type: string
-      description: Git repository containing taisce-cuan tasks.
-      default: "https://github.com/konflux-lightwell/taisce-cuan.git"
-    - name: taisceCuanGitRevision
+      description: Source-origin sidecar type (pypi or rhtl). PyPI does not require RHTL metadata.
+      default: "pypi"
+    - name: sourceOriginPath
       type: string
-      description: Git revision for taisce-cuan tasks.
-      default: "main"
+      description: Path to the source-origin sidecar in the extracted artifact.
+      default: ""
     - name: ociStorage
       type: string
       description: OCI storage repository for Trusted Artifacts.
@@ -226,49 +229,10 @@ spec:
         - name: dataPath
           value: $(tasks.collect-data.results.data)
 
-    # ── 6. Mirror sources ────────────────────────────────────────────────────
-    - name: mirror-sources
-      taskRef:
-        resolver: "git"
-        params:
-          - name: url
-            value: $(params.taisceCuanGitUrl)
-          - name: revision
-            value: $(params.taisceCuanGitRevision)
-          - name: pathInRepo
-            value: tekton/tasks/archive-sources/0.1/archive-sources.yaml
-      runAfter:
-        - extract-py-artifacts
-        - collect-task-params
-      params:
-        - name: sourceDataArtifact
-          value: "$(tasks.extract-py-artifacts.results.sourceDataArtifact)"
-        - name: dataDir
-          value: /var/workdir/content
-        - name: filesDir
-          value: files
-        - name: gitForgeUrl
-          value: $(tasks.collect-task-params.results.extractedValues[0])
-        - name: gitGroup
-          value: $(tasks.collect-task-params.results.extractedValues[1])
-        - name: gitSecretName
-          value: $(tasks.collect-task-params.results.extractedValues[2])
-        - name: committerName
-          value: $(tasks.collect-task-params.results.extractedValues[3])
-        - name: committerEmail
-          value: $(tasks.collect-task-params.results.extractedValues[4])
-        - name: allowOverwrite
-          value: $(tasks.collect-task-params.results.extractedValues[5])
-        - name: packageName
-          value: $(tasks.collect-task-params.results.extractedValues[6])
-        - name: packageVersion
-          value: $(tasks.collect-task-params.results.extractedValues[7])
-        - name: taskGitUrl
-          value: $(params.taskGitUrl)
-        - name: taskGitRevision
-          value: $(params.taskGitRevision)
-        - name: ociStorage
-          value: $(params.ociStorage)
+    # Source mirroring is fail-closed. No taisce-cuan immutable revision and task interface are
+    # present in this catalog commit, so wiring archive-sources would be unsafe. The follow-up change
+    # must prove the committed taisce task path/revision and pass sdistPath, sourceOriginPath,
+    # signerAuthorizationPath, and artifactBoundaryPath before adding a push task.
 
   finally:
     # ── 7. Cleanup internal requests ─────────────────────────────────────────
