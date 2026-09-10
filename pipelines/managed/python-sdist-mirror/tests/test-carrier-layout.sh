@@ -47,7 +47,16 @@ printf '{"source_registry":"rhtl","provenance_url":"https://example.invalid/prov
 origin="${tmp}/rhtl-advertised/content/files/source-origin.json"
 provenance_url="$(jq -r '.provenance_url // empty' "${origin}")"
 ! test -f "${tmp}/rhtl-advertised/content/files/provenance-response.bin"
-! (printf '%s' "${provenance_url}" | grep -Eq '^https?://[^[:space:]]+$' \
+! (printf '%s' "${provenance_url}" | grep -Eq '^https?://([^/?#[:space:]]+@)?(\[[^][[:space:]]+\]|[^:/?#[[:space:]]]+)(:[0-9]+)?([/?#][^[:space:]]*)?$' \
   && test -f "${tmp}/rhtl-advertised/content/files/provenance-response.bin")
+
+# Hostless, empty, non-string, whitespace-containing, and malformed URLs are invalid advertisements.
+for invalid_url in 'https:///missing-host' '' '   ' 'https://example.invalid/a b' 'https://?query' 'https://#fragment' 'ftp://example.invalid' 'https://:443/path'; do
+  ! printf '%s' "${invalid_url}" | grep -Eq '^https?://([^/?#[:space:]]+@)?(\[[^][[:space:]]+\]|[^:/?#[[:space:]]]+)(:[0-9]+)?([/?#][^[:space:]]*)?$'
+done
+! printf '%s' '123' | grep -Eq '^https?://([^/?#[:space:]]+@)?(\[[^][[:space:]]+\]|[^:/?#[[:space:]]]+)(:[0-9]+)?([/?#][^[:space:]]*)?$'
+for valid_url in 'http://example.invalid' 'https://example.invalid/path?query#fragment' 'https://user@example.invalid:8443/path'; do
+  printf '%s' "${valid_url}" | grep -Eq '^https?://([^/?#[:space:]]+@)?(\[[^][[:space:]]+\]|[^:/?#[[:space:]]]+)(:[0-9]+)?([/?#][^[:space:]]*)?$'
+done
 
 printf 'carrier layout tests passed\n'

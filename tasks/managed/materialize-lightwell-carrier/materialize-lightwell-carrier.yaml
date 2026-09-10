@@ -91,16 +91,22 @@ spec:
           # an advertisement and must validate as a non-empty HTTP(S) URL; malformed values must never downgrade.
           provenance_present="$(jq -r 'if (has("provenance_url") and .provenance_url != null) then "true" else "false" end' "${origin}")"
           provenance_url="$(jq -r '.provenance_url // empty' "${origin}")"
+          valid_provenance_url() {
+            case "$1" in
+              *[[:space:]]*) return 1 ;;
+            esac
+            printf '%s' "$1" | grep -Eq '^https?://([^/?#[:space:]]+@)?(\[[^][[:space:]]+\]|[^:/?#[[:space:]]]+)(:[0-9]+)?([/?#][^[:space:]]*)?$'
+          }
           case "${registry}" in
             pypi.org)
               if [ "${provenance_present}" = true ]; then
-                printf '%s' "${provenance_url}" | grep -Eq '^https?://[^[:space:]]+$'
+                valid_provenance_url "${provenance_url}"
                 copy_one "$(params.provenanceResponsePath)"
               fi
               ;;
             rhtl)
               if [ "${provenance_present}" = true ]; then
-                printf '%s' "${provenance_url}" | grep -Eq '^https?://[^[:space:]]+$'
+                valid_provenance_url "${provenance_url}"
                 copy_one "$(params.provenanceResponsePath)"
               else
                 copy_one "$(params.rhtlResponsePath)"
