@@ -83,6 +83,12 @@ grep -q 'PyPI provenance is generated and verified as DSSE' "${materializer}"
 ! sed -n '/- name: verify-release/,/- name: push-source/p' "${pipeline}" | grep -q 'name: sdistPath'
 grep -q 'gitSecretName' "${pipeline}"
 grep -q 'gitlabUrl' "${pipeline}"
+# The projected Git token is mode 0440; the non-root push TaskRun must read it via its group.
+sed -n '/pipelineTaskName: push-source/,+6p' "${pipeline}" | grep -q 'fsGroup: 1001'
+sed -n '/pipelineTaskName: push-source/,+7p' "${pipeline}" | grep -q 'fsGroupChangePolicy: OnRootMismatch'
+# Push-source receives only the Git token; signing credentials stay confined to signing tasks.
+! sed -n '/- name: push-source/,/^  finally:/p' "${pipeline}" | grep -q 'signingSecretName'
+grep -q 'GIT_TERMINAL_PROMPT' "${pipeline}" || grep -q 'GIT_TERMINAL_PROMPT' "${base}/tasks/managed"
 ! grep -q 'sourceOriginType' "${pipeline}"
 ! grep -q 'verified_sha256' "${prepare}"
 ! grep -Eiq 'insecure|skip-tlog|disable-tls|IGNORE_REKOR.*true' "${signer}"

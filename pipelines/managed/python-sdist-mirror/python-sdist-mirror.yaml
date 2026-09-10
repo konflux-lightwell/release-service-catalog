@@ -66,6 +66,15 @@ spec:
   workspaces:
     - name: release
 
+  # The push-source TaskRun consumes a projected Git token Secret mounted with mode 0440.
+  # Keep it non-root while granting the process group access to the mounted token.
+  taskRunSpecs:
+    - pipelineTaskName: push-source
+      podTemplate:
+        securityContext:
+          fsGroup: 1001
+          fsGroupChangePolicy: OnRootMismatch
+
   tasks:
     # Deployment admission must validate full immutable resolver revisions before resolver use.
     - name: validate-resolver-revisions
