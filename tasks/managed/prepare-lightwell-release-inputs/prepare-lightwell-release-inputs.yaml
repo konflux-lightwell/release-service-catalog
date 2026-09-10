@@ -88,6 +88,14 @@ spec:
           root="$(workspaces.release.path)"
           origin="${root}/$(params.sourceOriginPath)"
           sdist="${root}/$(params.sdistPath)"
+          if [ -d "${sdist}" ]; then
+            mapfile -t sdists < <(find "${sdist}" -maxdepth 1 -type f -name '*.tar.gz' -print)
+            test "${#sdists[@]}" -eq 1 || {
+              echo "expected exactly one sdist under ${sdist}" >&2
+              exit 1
+            }
+            sdist="${sdists[0]}"
+          fi
           test -s "${origin}" || {
             echo "missing required source-origin sidecar: ${origin}" >&2
             exit 1
