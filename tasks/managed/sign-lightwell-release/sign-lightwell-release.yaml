@@ -1,0 +1,93 @@
+---
+# yamllint disable rule:line-length
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: sign-lightwell-release
+spec:
+  description: >-
+    Validates the immutable acquisition record and creates native Cosign DSSE attestations. RHTL publication is
+    fail-closed because the Taisce interface requires provenance_dsse and cannot bind opaque RHTL evidence.
+  params:
+    - name: sourceOriginPath
+      type: string
+    - name: sdistPath
+      type: string
+    - name: cosignSecretName
+      type: string
+    - name: cosignVersion
+      type: string
+      default: v3
+    - name: packageName
+      type: string
+    - name: packageVersion
+      type: string
+    - name: sourceRegistry
+      type: string
+      default: pypi
+  workspaces:
+    - name: release
+  results:
+    - name: signerAuthorizationPath
+    - name: artifactBoundaryPath
+    - name: metadataPath
+  volumes:
+    - name: production-signing-key
+      secret:
+        secretName: $(params.cosignSecretName)
+        optional: false
+        defaultMode: 0400
+  stepTemplate:
+    securityContext:
+      runAsUser: 1001
+    volumeMounts:
+      - name: production-signing-key
+        mountPath: /var/run/lightwell/signing
+        readOnly: true
+  steps:
+    - name: sign
+      image: quay.io/konflux-ci/release-service-utils@sha256:5546fa78d3c88d7b6a2e8cff8902f7757f00541d0bbaf113b9f293133894afa3
+      computeResources:
+        limits: {memory: 256Mi}
+        requests: {memory: 128Mi, cpu: 100m}
+      command: [bash]
+      args:
+        - -ceu
+        - |
+          root="$(workspaces.release.path)"
+          origin="${root}/$(params.sourceOriginPath)"
+          archive="${root}/$(params.sdistPath)"
+          test -s "${origin}" && test -s "${archive}"
+          cosign version 2>/dev/null | grep -Eq 'v?$(params.cosignVersion)([.]|$)' || { echo 'Cosign v3 is required' >&2; exit 1; }
+          registry="$(params.sourceRegistry)"
+          jq -e --arg package "$(params.packageName)" --arg version "$(params.packageVersion)" --arg registry "${registry}" \
+            '.package == $package and .version == $version and .source_registry == $registry and (.verified_sha256|test("^[0-9a-fA-F]{64}$"))' "${origin}" >/dev/null || {
+              echo "source-origin canonical identity or verified_sha256 mismatch" >&2; exit 1; }
+          actual="$(sha256sum "${archive}" | awk '{print $1}')"
+          expected="$(jq -r '.verified_sha256 | ascii_downcase' "${origin}")"
+          test "${actual}" = "${expected}" || { echo "archive does not match verified_sha256" >&2; exit 1; }
+          if [ "${registry}" = rhtl ]; then
+            echo "RHTL publication blocked: Taisce 53ea135 requires provenance_dsse and cannot bind opaque response evidence" >&2
+            exit 1
+          fi
+          mkdir -p "${root}/.lightwell"
+          origin_rel="${origin#${root}/}"
+          archive_rel="${archive#${root}/}"
+          jq -n --arg package "$(params.packageName)" --arg version "$(params.packageVersion)" --arg sha "${actual}" --arg origin "${origin_rel}" --arg archive "${archive_rel}" \
+            '{schema:"lightwell.metadata.v1",package:$package,version:$version,sourceSha256:$sha,sourceOriginPath:$origin,archivePath:$archive}' > "${root}/.lightwell/metadata.json"
+          jq -n --arg package "$(params.packageName)" --arg version "$(params.packageVersion)" --arg sha "${actual}" \
+            '{_type:"https://in-toto.io/Statement/v1",subject:[{name:$package, digest:{sha256:$sha}}],predicateType:"https://slsa.dev/provenance/v1",predicate:{buildDefinition:{buildType:"https://lightwell.dev/source-ingestion/v1",externalParameters:{version:$version}},runDetails:{builder:{id:"lightwell/catalog"}}}}' > "${root}/.lightwell/provenance.json"
+          cosign attest-blob --key "$(find /var/run/lightwell/signing -maxdepth 1 -type f -print -quit)" --type slsaprovenance --output-file "${root}/.lightwell/metadata.dsse.json" "${root}/.lightwell/metadata.json"
+          cosign attest-blob --key "$(find /var/run/lightwell/signing -maxdepth 1 -type f -print -quit)" --type slsaprovenance --output-file "${root}/.lightwell/provenance.dsse.json" "${root}/.lightwell/provenance.json"
+          test -s "${root}/.lightwell/metadata.dsse.json" && test -s "${root}/.lightwell/provenance.dsse.json"
+          source_sha="$(sha256sum "${origin}" | awk '{print $1}')"
+          metadata_sha="$(sha256sum "${root}/.lightwell/metadata.dsse.json" | awk '{print $1}')"
+          provenance_sha="$(sha256sum "${root}/.lightwell/provenance.dsse.json" | awk '{print $1}')"
+          binding="${root}/.lightwell/catalog-binding.json"
+          jq -n --arg so "source-origin.json" --arg ss "${source_sha}" --arg ar "$(basename "${archive}")" --arg as "${actual}" --arg md ".lightwell/metadata.dsse.json" --arg ms "${metadata_sha}" --arg pr ".lightwell/provenance.dsse.json" --arg ps "${provenance_sha}" \
+            '{schema:"lightwell.catalog-binding",version:1,source_origin:{path:$so,sha256:$ss},archive:{path:$ar,sha256:$as},metadata_dsse:{path:$md,sha256:$ms},provenance_dsse:{path:$pr,sha256:$ps}}' > "${binding}"
+          cp "${binding}" "${root}/signer-authorization.json"
+          cp "${binding}" "${root}/artifact-boundary.json"
+          printf '%s' signer-authorization.json > "$(results.signerAuthorizationPath.path)"
+          printf '%s' artifact-boundary.json > "$(results.artifactBoundaryPath.path)"
+          printf '%s' .lightwell/metadata.json > "$(results.metadataPath.path)"

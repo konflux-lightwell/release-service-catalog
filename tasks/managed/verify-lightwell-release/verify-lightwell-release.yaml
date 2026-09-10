@@ -1,0 +1,43 @@
+---
+# yamllint disable rule:line-length
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: verify-lightwell-release
+spec:
+  description: Verifies catalog bindings and native Cosign DSSE over the exact metadata and provenance bytes.
+  params:
+    - name: signerAuthorizationPath
+      type: string
+    - name: artifactBoundaryPath
+      type: string
+    - name: metadataPath
+      type: string
+    - name: cosignPublicKeyPath
+      type: string
+  workspaces:
+    - name: release
+  steps:
+    - name: verify
+      image: quay.io/konflux-ci/release-service-utils@sha256:5546fa78d3c88d7b6a2e8cff8902f7757f00541d0bbaf113b9f293133894afa3
+      securityContext: {runAsUser: 1001}
+      computeResources:
+        limits: {memory: 128Mi}
+        requests: {memory: 64Mi, cpu: 50m}
+      command: [bash]
+      args:
+        - -ceu
+        - |
+          root="$(workspaces.release.path)"
+          auth="${root}/$(params.signerAuthorizationPath)"
+          boundary="${root}/$(params.artifactBoundaryPath)"
+          metadata="${root}/$(params.metadataPath)"
+          key="$(params.cosignPublicKeyPath)"
+          test -s "${auth}" && test -s "${boundary}" && test -s "${metadata}" && test -s "${key}"
+          cmp -s "${auth}" "${boundary}" || { echo 'authorization and boundary differ' >&2; exit 1; }
+          jq -e '(.schema == "lightwell.catalog-binding" and .version == 1 and (["source_origin","archive","metadata_dsse","provenance_dsse"] - keys | length) == 0)' "${auth}" >/dev/null
+          jq -r '.metadata_dsse.path, .provenance_dsse.path' "${auth}" | while read -r path; do
+            test -s "${root}/${path}"
+          done
+          cosign verify-blob-attestation --key "${key}" --signature "${root}/.lightwell/metadata.dsse.json" "${root}/.lightwell/metadata.json" >/dev/null
+          cosign verify-blob-attestation --key "${key}" --signature "${root}/.lightwell/provenance.dsse.json" "${root}/.lightwell/provenance.json" >/dev/null

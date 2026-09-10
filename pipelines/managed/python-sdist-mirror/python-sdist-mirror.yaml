@@ -46,16 +46,12 @@ spec:
       type: string
       description: Timeout for Enterprise Contract evaluation.
       default: "1h0m0s"
-    - name: taskGitUrl
-      type: string
-      description: Git repository containing the release tasks.
-      default: "https://github.com/konflux-lightwell/release-service-catalog.git"
     - name: taskGitRevision
       type: string
       description: >-
         Required full 40-character immutable commit SHA for the catalog commit containing every resolver path above;
         mutable branches and abbreviated SHAs are rejected by review and deployment policy.
-      default: "e9265cea3f3edfce86d1a7e68083f5f99128b6b4"
+      default: ""
     - name: sourceOriginType
       type: string
       description: Source-origin sidecar type (pypi or rhtl). PyPI does not require RHTL metadata.
@@ -68,14 +64,6 @@ spec:
       type: string
       description: OCI storage repository for Trusted Artifacts.
       default: "quay.io/konflux-ci/release-service-trusted-artifacts"
-    - name: taisceCuanGitUrl
-      type: string
-      description: Immutable taisce-cuan repository containing push-source-to-lightwell-builds.
-      default: "https://github.com/konflux-lightwell/taisce-cuan.git"
-    - name: taisceCuanGitRevision
-      type: string
-      description: Full immutable taisce-cuan commit SHA.
-      default: "b010b2eccdd660d505bd780f3712803af553ad43"
   workspaces:
     - name: release
 
@@ -86,7 +74,7 @@ spec:
         resolver: "git"
         params:
           - name: url
-            value: $(params.taskGitUrl)
+            value: https://github.com/konflux-ci/release-service-catalog.git
           - name: revision
             value: $(params.taskGitRevision)
           - name: pathInRepo
@@ -105,7 +93,7 @@ spec:
         - name: subdirectory
           value: data
         - name: taskGitUrl
-          value: $(params.taskGitUrl)
+          value: https://github.com/konflux-ci/release-service-catalog.git
         - name: taskGitRevision
           value: $(params.taskGitRevision)
         - name: ociStorage
@@ -117,7 +105,7 @@ spec:
         resolver: "git"
         params:
           - name: url
-            value: $(params.taskGitUrl)
+            value: https://github.com/konflux-ci/release-service-catalog.git
           - name: revision
             value: $(params.taskGitRevision)
           - name: pathInRepo
@@ -126,7 +114,7 @@ spec:
         - collect-data
       params:
         - name: taskGitUrl
-          value: $(params.taskGitUrl)
+          value: https://github.com/konflux-ci/release-service-catalog.git
         - name: taskGitRevision
           value: $(params.taskGitRevision)
         - name: ociStorage
@@ -145,7 +133,9 @@ spec:
               {"resultIndex": 4, "key": ".committerEmail"},
               {"resultIndex": 5, "key": ".allowSourceOverwrite", "default": "false"},
               {"resultIndex": 6, "key": ".packageName"},
-              {"resultIndex": 7, "key": ".packageVersion"}
+              {"resultIndex": 7, "key": ".packageVersion"},
+              {"resultIndex": 8, "key": ".cosignSecretName"},
+              {"resultIndex": 9, "key": ".cosignPublicKeyPath"}
             ]
 
     # ── 3. Reduce Snapshot ───────────────────────────────────────────────────
@@ -154,7 +144,7 @@ spec:
         resolver: "git"
         params:
           - name: url
-            value: $(params.taskGitUrl)
+            value: https://github.com/konflux-ci/release-service-catalog.git
           - name: revision
             value: $(params.taskGitRevision)
           - name: pathInRepo
@@ -167,7 +157,7 @@ spec:
         - name: SINGLE_COMPONENT
           value: "false"
         - name: taskGitUrl
-          value: $(params.taskGitUrl)
+          value: https://github.com/konflux-ci/release-service-catalog.git
         - name: taskGitRevision
           value: $(params.taskGitRevision)
         - name: sourceDataArtifact
@@ -181,7 +171,7 @@ spec:
         resolver: "git"
         params:
           - name: url
-            value: $(params.taskGitUrl)
+            value: https://github.com/konflux-ci/release-service-catalog.git
           - name: revision
             value: $(params.taskGitRevision)
           - name: pathInRepo
@@ -195,8 +185,6 @@ spec:
           value: $(params.enterpriseContractPolicy)
         - name: STRICT
           value: "1"
-        - name: IGNORE_REKOR
-          value: "true"
         - name: EXTRA_RULE_DATA
           value: $(params.enterpriseContractExtraRuleData)
         - name: TIMEOUT
@@ -204,7 +192,7 @@ spec:
         - name: SOURCE_DATA_ARTIFACT
           value: "$(tasks.reduce-snapshot.results.sourceDataArtifact)"
         - name: taskGitUrl
-          value: $(params.taskGitUrl)
+          value: https://github.com/konflux-ci/release-service-catalog.git
         - name: taskGitRevision
           value: $(params.taskGitRevision)
         - name: ociStorage
@@ -216,7 +204,7 @@ spec:
         resolver: "git"
         params:
           - name: url
-            value: $(params.taskGitUrl)
+            value: https://github.com/konflux-ci/release-service-catalog.git
           - name: revision
             value: $(params.taskGitRevision)
           - name: pathInRepo
@@ -231,7 +219,7 @@ spec:
         - name: ociStorage
           value: $(params.ociStorage)
         - name: taskGitUrl
-          value: $(params.taskGitUrl)
+          value: https://github.com/konflux-ci/release-service-catalog.git
         - name: taskGitRevision
           value: $(params.taskGitRevision)
         - name: dataDir
@@ -245,7 +233,7 @@ spec:
         resolver: git
         params:
           - name: url
-            value: $(params.taskGitUrl)
+            value: https://github.com/konflux-ci/release-service-catalog.git
           - name: revision
             value: $(params.taskGitRevision)
           - name: pathInRepo
@@ -266,9 +254,63 @@ spec:
         - name: ociStorage
           value: $(params.ociStorage)
         - name: taskGitUrl
-          value: $(params.taskGitUrl)
+          value: https://github.com/konflux-ci/release-service-catalog.git
         - name: taskGitRevision
           value: $(params.taskGitRevision)
+      workspaces:
+        - name: release
+          workspace: release
+
+    - name: sign-release
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/konflux-ci/release-service-catalog.git
+          - name: revision
+            value: $(params.taskGitRevision)
+          - name: pathInRepo
+            value: tasks/managed/sign-lightwell-release/sign-lightwell-release.yaml
+      runAfter: [prepare-release-inputs]
+      params:
+        - name: sourceOriginPath
+          value: $(tasks.prepare-release-inputs.results.sourceOriginPath)
+        - name: sdistPath
+          value: $(tasks.prepare-release-inputs.results.sdistPath)
+        - name: cosignSecretName
+          value: $(tasks.collect-task-params.results.extractedValues[8])
+        - name: packageName
+          value: $(tasks.collect-task-params.results.extractedValues[6])
+        - name: packageVersion
+          value: $(tasks.collect-task-params.results.extractedValues[7])
+        - name: sourceRegistry
+          value: $(params.sourceOriginType)
+      workspaces:
+        - name: release
+          workspace: release
+
+    - name: verify-release
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/konflux-ci/release-service-catalog.git
+          - name: revision
+            value: $(params.taskGitRevision)
+          - name: pathInRepo
+            value: tasks/managed/verify-lightwell-release/verify-lightwell-release.yaml
+      runAfter: [sign-release]
+      params:
+        - name: signerAuthorizationPath
+          value: $(tasks.sign-release.results.signerAuthorizationPath)
+        - name: metadataPath
+          value: $(tasks.sign-release.results.metadataPath)
+        - name: sdistPath
+          value: $(tasks.prepare-release-inputs.results.sdistPath)
+        - name: artifactBoundaryPath
+          value: $(tasks.sign-release.results.artifactBoundaryPath)
+        - name: cosignPublicKeyPath
+          value: $(tasks.collect-task-params.results.extractedValues[9])
       workspaces:
         - name: release
           workspace: release
@@ -278,22 +320,26 @@ spec:
         resolver: git
         params:
           - name: url
-            value: $(params.taisceCuanGitUrl)
+            value: https://github.com/konflux-lightwell/taisce-cuan.git
           - name: revision
-            value: $(params.taisceCuanGitRevision)
+            value: 53ea1359c066e28463ae7a49234d2ccc84e59c4f
           - name: pathInRepo
             value: tekton/tasks/push-source-to-lightwell-builds/0.1/push-source-to-lightwell-builds.yaml
       runAfter:
-        - prepare-release-inputs
+        - verify-release
       params:
         - name: sdistPath
           value: $(tasks.prepare-release-inputs.results.sdistPath)
         - name: sourceOriginPath
           value: $(tasks.prepare-release-inputs.results.sourceOriginPath)
         - name: signerAuthorizationPath
-          value: $(tasks.prepare-release-inputs.results.signerAuthorizationPath)
+          value: $(tasks.sign-release.results.signerAuthorizationPath)
         - name: artifactBoundaryPath
-          value: $(tasks.prepare-release-inputs.results.artifactBoundaryPath)
+          value: $(tasks.sign-release.results.artifactBoundaryPath)
+        - name: gitSecretName
+          value: $(tasks.collect-task-params.results.extractedValues[2])
+        - name: gitlabUrl
+          value: $(tasks.collect-task-params.results.extractedValues[0])
         - name: packageName
           value: $(tasks.collect-task-params.results.extractedValues[6])
         - name: packageVersion
@@ -311,7 +357,7 @@ spec:
         resolver: "git"
         params:
           - name: url
-            value: $(params.taskGitUrl)
+            value: https://github.com/konflux-ci/release-service-catalog.git
           - name: revision
             value: $(params.taskGitRevision)
           - name: pathInRepo
@@ -320,6 +366,6 @@ spec:
         - name: pipelineRunUid
           value: $(context.pipelineRun.uid)
         - name: taskGitUrl
-          value: $(params.taskGitUrl)
+          value: https://github.com/konflux-ci/release-service-catalog.git
         - name: taskGitRevision
           value: $(params.taskGitRevision)
