@@ -49,9 +49,10 @@ test "${registry}" = rhtl && test "${provenance_present}" = false
 test -f "${tmp}/rhtl-null/content/files/rhtl-response.json"
 test ! -e "${tmp}/rhtl-null/content/files/provenance-response.bin"
 
-# An advertised URL must fail when its response is absent, rather than downgrading to RHTL.
+# An advertised URL requires provenance-response.bin only; rhtl-response.json is not required.
 mkdir -p "${tmp}/rhtl-advertised/content/files"
 printf '{"source_registry":"rhtl","provenance_url":"https://example.invalid/provenance"}\n' > "${tmp}/rhtl-advertised/content/files/source-origin.json"
+printf '\0provenance\n' > "${tmp}/rhtl-advertised/content/files/provenance-response.bin"
 origin="${tmp}/rhtl-advertised/content/files/source-origin.json"
 provenance_url="$(jq -r '.provenance_url // empty' "${origin}")"
 
@@ -75,8 +76,8 @@ valid_provenance_url() {
   esac
   test -n "${host}"
 }
-! test -f "${tmp}/rhtl-advertised/content/files/provenance-response.bin"
-! (valid_provenance_url "${provenance_url}" && test -f "${tmp}/rhtl-advertised/content/files/provenance-response.bin")
+valid_provenance_url "${provenance_url}" && test -s "${tmp}/rhtl-advertised/content/files/provenance-response.bin"
+test ! -e "${tmp}/rhtl-advertised/content/files/rhtl-response.json"
 for invalid_url in 'https:///missing-host' '' '   ' 'https://example.invalid/a b' 'https://?query' 'https://#fragment' 'ftp://example.invalid' 'https://:443/path' 123; do
   ! valid_provenance_url "${invalid_url}"
 done

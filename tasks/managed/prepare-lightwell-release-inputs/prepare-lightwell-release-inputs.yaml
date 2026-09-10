@@ -66,23 +66,50 @@ spec:
         - |
           root="$(workspaces.release.path)"
           safe_path() { case "$1" in /*|*../*|../*|*//*|'') return 1;; esac; }
-          origin_rel="$(params.sourceOriginPath)"; transformation_rel="$(params.transformationPath)"; response_rel="$(params.rhtlResponsePath)"
-          safe_path "${origin_rel}" && safe_path "${transformation_rel}" && safe_path "${response_rel}"
+          origin_rel="$(params.sourceOriginPath)"; transformation_rel="$(params.transformationPath)"; response_rel="$(params.rhtlResponsePath)"; provenance_rel="$(params.provenanceResponsePath)"
+          safe_path "${origin_rel}" && safe_path "${transformation_rel}" && safe_path "${response_rel}" && safe_path "${provenance_rel}"
           response="${root}/${response_rel}"
+          provenance_response="${root}/${provenance_rel}"
           origin="${root}/${origin_rel}"
           transformation="${root}/${transformation_rel}"
           test -s "${origin}" && test -s "${transformation}"
           source_sha="$(jq -r '.acquired_artifact.sha256 // empty' "${origin}" | tr '[:upper:]' '[:lower:]')"
           source_registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"
+          provenance_present="$(jq -r 'if (has("provenance_url") and .provenance_url != null) then "true" else "false" end' "${origin}")"
+          provenance_url="$(jq -r '.provenance_url // empty' "${origin}")"
+          valid_provenance_url() {
+            local url="$1" authority hostport host port suffix
+            case "${url}" in http://*|https://*) ;; *) return 1 ;; esac
+            case "${url}" in ''|*[[:space:]]*) return 1 ;; esac
+            authority="${url#*://}"; authority="${authority%%[/?#]*}"
+            test -n "${authority}" || return 1
+            hostport="${authority##*@}"; test -n "${hostport}" || return 1
+            case "${hostport}" in
+              \[*\]) host="${hostport#\[}"; host="${host%\]}"; test -n "${host}" || return 1 ;;
+              \[*\]:*)
+                host="${hostport%%\]*}"; host="${host#\[}"; suffix="${hostport#*\]}"; port="${suffix#:}"
+                test "${suffix#*:}" != "${suffix}" && test -n "${port}" || return 1
+                case "${port}" in *[!0-9]*) return 1 ;; esac ;;
+              *:*) host="${hostport%:*}"; port="${hostport##*:}"; test -n "${host}" && test -n "${port}" || return 1
+                case "${port}" in *[!0-9]*) return 1 ;; esac ;;
+              *) host="${hostport}" ;;
+            esac
+            test -n "${host}"
+          }
           if [ "${source_registry}" = rhtl ]; then
-            test -s "${response}"
-            expected_response_sha="$(jq -r '.rhtl_response_sha256 // empty' "${origin}" | tr '[:upper:]' '[:lower:]')"
-            test "${expected_response_sha}" && printf '%s' "${expected_response_sha}" | grep -Eq '^[0-9a-f]{64}$'
-            actual_response_sha="$(sha256sum "${response}" | awk '{print $1}')"
-            test "${actual_response_sha}" = "${expected_response_sha}" || {
-              printf 'rhtl-response.json digest does not match source-origin rhtl_response_sha256\n' >&2
-              exit 1
-            }
+            if [ "${provenance_present}" = true ]; then
+              valid_provenance_url "${provenance_url}"
+              test -s "${provenance_response}"
+            else
+              test -s "${response}"
+              expected_response_sha="$(jq -r '.rhtl_response_sha256 // empty' "${origin}" | tr '[:upper:]' '[:lower:]')"
+              test "${expected_response_sha}" && printf '%s' "${expected_response_sha}" | grep -Eq '^[0-9a-f]{64}$'
+              actual_response_sha="$(sha256sum "${response}" | awk '{print $1}')"
+              test "${actual_response_sha}" = "${expected_response_sha}" || {
+                printf 'rhtl-response.json digest does not match source-origin rhtl_response_sha256\n' >&2
+                exit 1
+              }
+            fi
           fi
           output_path="$(jq -r '.output.path // empty' "${transformation}")"
           test "${source_sha}" && printf '%s' "${source_sha}" | grep -Eq '^[0-9a-f]{64}$'
