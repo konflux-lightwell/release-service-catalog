@@ -5,7 +5,9 @@ kind: Task
 metadata:
   name: verify-lightwell-release
 spec:
-  description: Recomputes every Taisce v3 binding digest and verifies the actual Cosign blob attestations.
+  description: >-
+    Recomputes every Taisce v3 binding digest and verifies the actual Cosign blob attestations. Verification retains the
+    default Rekor transparency-log policy and requires network access to the configured Sigstore services.
   params:
     - {name: signerAuthorizationPath, type: string}
     - {name: artifactBoundaryPath, type: string}
@@ -40,9 +42,9 @@ spec:
           jq -r 'to_entries[] | select(.value|type == "object" and has("path") and has("sha256")) | [.key,.value.path,.value.sha256] | @tsv' "${auth}" | while IFS=$'\t' read -r name path expected; do
             case "${path}" in /*|*../*|../*|*//*|'') exit 1;; esac; file="${root}/${path}"; test -f "${file}"; actual="$(sha256sum "${file}" | awk '{print $1}')"; test "${actual}" = "$(printf '%s' "${expected}" | tr '[:upper:]' '[:lower:]')" || { echo "binding digest mismatch: ${name}" >&2; exit 1; }
           done
-          cosign verify-blob-attestation --key "${key}" --signature "${root}/.lightwell/metadata.dsse.json" "${root}/.lightwell/metadata.json" >/dev/null
+          cosign verify-blob-attestation --key "${key}" --type lightwell-metadata --signature "${root}/.lightwell/metadata.dsse.json" "${root}/.lightwell/metadata.json" >/dev/null
           if jq -e 'has("provenance_dsse")' "${auth}" >/dev/null; then
-            cosign verify-blob-attestation --key "${key}" --signature "${root}/.lightwell/provenance.dsse.json" "${root}/.lightwell/provenance.json" >/dev/null
+            cosign verify-blob-attestation --key "${key}" --type https://slsa.dev/provenance/v1 --signature "${root}/.lightwell/provenance.dsse.json" "${root}/.lightwell/provenance.json" >/dev/null
           else
             test ! -e "${root}/.lightwell/provenance.dsse.json"; test -s "${root}/.lightwell/provenance-response.bin"; cmp -s "${root}/provenance-response.bin" "${root}/.lightwell/provenance-response.bin"
           fi

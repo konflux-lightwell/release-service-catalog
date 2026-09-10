@@ -5,7 +5,9 @@ kind: Task
 metadata:
   name: sign-lightwell-release
 spec:
-  description: Creates signed final metadata and a Taisce v3 catalog binding for PyPI or RHTL evidence.
+  description: >-
+    Creates signed final metadata and a Taisce v3 catalog binding for PyPI or RHTL evidence. Cosign retains its
+    default Rekor transparency-log upload policy; the task requires network access to the configured Sigstore services.
   params:
     - {name: sourceOriginPath, type: string}
     - {name: transformationPath, type: string}
@@ -42,7 +44,9 @@ spec:
           safe_path "${origin_rel}" && safe_path "${transform_rel}" && safe_path "${archive_rel}" && safe_path "${response_rel}"
           origin="${root}/${origin_rel}"; transform="${root}/${transform_rel}"; archive="${root}/${archive_rel}"
           test -s "${origin}" && test -s "${transform}" && test -s "${archive}"
-          key="$(find /var/run/lightwell/signing -maxdepth 1 -type f -print -quit)"; test -s "${key}"
+          key=/var/run/lightwell/signing/cosign.key
+          test -f "${key}" && test -s "${key}"
+          test "$(find /var/run/lightwell/signing -maxdepth 1 -type f -print | wc -l)" -eq 1
           cosign version 2>/dev/null | grep -Eq '(^|[[:space:]])v?$(params.cosignVersion)([.][0-9]+)?([[:space:]]|$)'
           upstream_sha="$(jq -r .acquired_artifact.sha256 "${origin}" | tr '[:upper:]' '[:lower:]')"; registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"; normalized_sha="$(sha256sum "${archive}" | awk '{print $1}')"
           jq -e --arg p "$(params.packageName)" --arg v "$(params.packageVersion)" --arg r "${registry}" ".package == \$p and .version == \$v and (.source_registry // .registry) == \$r" "${origin}" >/dev/null
@@ -69,9 +73,9 @@ spec:
           else
             jq -e '.package and .version' "${root}/.lightwell/metadata.json" >/dev/null
             jq -n --arg p "$(params.packageName)" --arg v "$(params.packageVersion)" --arg sha "${normalized_sha}" '{_type:"https://in-toto.io/Statement/v1",subject:[{name:$p,digest:{sha256:$sha}}],predicateType:"https://slsa.dev/provenance/v1",predicate:{buildDefinition:{buildType:"https://lightwell.dev/source-ingestion/v1",externalParameters:{version:$v}},runDetails:{builder:{id:"lightwell/catalog"}}}}' > "${root}/.lightwell/provenance.json"
-            cosign attest-blob --key "${key}" --type slsaprovenance --output-file "${root}/.lightwell/provenance.dsse.json" "${root}/.lightwell/provenance.json"
+            cosign attest-blob --key "${key}" --type https://slsa.dev/provenance/v1 --tlog-upload=true --output-file "${root}/.lightwell/provenance.dsse.json" "${root}/.lightwell/provenance.json"
           fi
-          cosign attest-blob --key "${key}" --type lightwell-metadata --output-file "${root}/.lightwell/metadata.dsse.json" "${root}/.lightwell/metadata.json"
+          cosign attest-blob --key "${key}" --type lightwell-metadata --tlog-upload=true --output-file "${root}/.lightwell/metadata.dsse.json" "${root}/.lightwell/metadata.json"
           md=".lightwell/metadata.json"; mds=".lightwell/metadata.dsse.json"; binding="${root}/.lightwell/catalog-binding.json"
           jq -n --arg so "${origin_rel}" --arg ss "$(sha256sum "${origin}" | awk '{print $1}')" --arg tr "${transform_rel}" --arg ts "$(sha256sum "${transform}" | awk '{print $1}')" --arg ar "${archive_rel}" --arg as "${normalized_sha}" --arg md "${md}" --arg ms "$(sha256sum "${root}/${md}" | awk '{print $1}')" --arg mds "${mds}" --arg mdsd "$(sha256sum "${root}/${mds}" | awk '{print $1}')" \
             '{schema:"lightwell.catalog-binding",version:3,source_origin:{path:$so,sha256:$ss},transformation:{path:$tr,sha256:$ts},normalized_archive:{path:$ar,sha256:$as},metadata:{path:$md,sha256:$ms},metadata_dsse:{path:$mds,sha256:$mdsd}}' > "${binding}"
