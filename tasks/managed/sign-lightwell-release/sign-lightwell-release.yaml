@@ -35,31 +35,35 @@ spec:
         - -ceu
         - |
           root="$(workspaces.release.path)"; mkdir -p "${root}/.lightwell"
-          origin="${root}/$(params.sourceOriginPath)"; transform="${root}/$(params.transformationPath)"; archive="${root}/$(params.sdistPath)"
+          safe_path() { case "$1" in /*|*../*|../*|*//*|'') return 1;; esac; }
+          origin_rel="$(params.sourceOriginPath)"; transform_rel="$(params.transformationPath)"; archive_rel="$(params.sdistPath)"; response_rel="$(params.rhtlResponsePath)"
+          safe_path "${origin_rel}" && safe_path "${transform_rel}" && safe_path "${archive_rel}" && safe_path "${response_rel}"
+          origin="${root}/${origin_rel}"; transform="${root}/${transform_rel}"; archive="${root}/${archive_rel}"
           test -s "${origin}" && test -s "${transform}" && test -s "${archive}"
           key="$(find /var/run/lightwell/signing -maxdepth 1 -type f -print -quit)"; test -s "${key}"
-          cosign version 2>/dev/null | grep -Eq 'v?$(params.cosignVersion)([.]|$)'
+          cosign version 2>/dev/null | grep -Eq '(^|[[:space:]])v?$(params.cosignVersion)([.][0-9]+)?([[:space:]]|$)'
           upstream_sha="$(jq -r .acquired_artifact.sha256 "${origin}" | tr '[:upper:]' '[:lower:]')"; registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"; normalized_sha="$(sha256sum "${archive}" | awk '{print $1}')"
           jq -e --arg p "$(params.packageName)" --arg v "$(params.packageVersion)" --arg r "${registry}" ".package == \$p and .version == \$v and (.source_registry // .registry) == \$r" "${origin}" >/dev/null
-          test "${upstream_sha}" = "$(jq -r .source_origin.sha256 "${transform}" | tr '[:upper:]' '[:lower:]')"
+          source_origin_sha="$(sha256sum "${origin}" | awk '{print $1}')"
+          test "${source_origin_sha}" = "$(jq -r .source_origin.sha256 "${transform}" | tr '[:upper:]' '[:lower:]')"
           test "${normalized_sha}" = "$(jq -r .output.sha256 "${transform}" | tr '[:upper:]' '[:lower:]')"
           origin_rel="$(params.sourceOriginPath)"; transform_rel="$(params.transformationPath)"; archive_rel="$(params.sdistPath)"
           upstream_url="$(jq -r '.url // .source_url // ""' "${origin}")"; transformation_sha="$(sha256sum "${transform}" | awk '{print $1}')"
           jq -n --arg p "$(params.packageName)" --arg v "$(params.packageVersion)" --arg r "${registry}" --arg url "${upstream_url}" --arg us "${upstream_sha}" --arg up "${origin_rel}" --arg ns "${normalized_sha}" --arg np "${archive_rel}" --arg tp "${transform_rel}" --arg ts "${transformation_sha}" \
             '{schema:"lightwell.metadata.v1",package:$p,version:$v,upstream:{registry:$r,url:$url,sha256:$us,path:$up},normalized_artifact:{path:$np,sha256:$ns},transformation:{path:$tp,sha256:$ts}}' > "${root}/.lightwell/metadata.json"
           if [ "${registry}" = rhtl ]; then
-            raw="${root}/$(params.rhtlResponsePath)"; test -s "${raw}"; cp --preserve=all "${raw}" "${root}/.lightwell/rhtl-provenance-response.bin"
-            jq --arg path ".lightwell/rhtl-provenance-response.bin" --arg sha "$(sha256sum "${raw}" | awk '{print $1}')" --arg url "$(jq -r '.provenance_url // ""' "${origin}")" --argjson status "$(jq -c '.provenance_response_status // null' "${origin}")" --arg us "${upstream_sha}" --arg r "${registry}" '.upstream_provenance_response={path:$path,url:$url,sha256:$sha,status:$status,native_validation:"unavailable"}' "${root}/.lightwell/metadata.json" > "${root}/.lightwell/metadata.tmp"; mv "${root}/.lightwell/metadata.tmp" "${root}/.lightwell/metadata.json"
+            raw="${root}/${response_rel}"; test -s "${raw}"; cp --preserve=all "${raw}" "${root}/provenance-response.bin"; cp --preserve=all "${root}/provenance-response.bin" "${root}/.lightwell/provenance-response.bin"
+            jq --arg path ".lightwell/provenance-response.bin" --arg sha "$(sha256sum "${root}/.lightwell/provenance-response.bin" | awk '{print $1}')" --arg url "$(jq -r '.provenance_url // ""' "${origin}")" --argjson status "$(jq -c '.provenance_response_status // null' "${origin}")" --arg us "${upstream_sha}" --arg r "${registry}" '.upstream_provenance_response={path:$path,url:$url,sha256:$sha,status:$status,native_validation:"unavailable"}' "${root}/.lightwell/metadata.json" > "${root}/.lightwell/metadata.tmp"; mv "${root}/.lightwell/metadata.tmp" "${root}/.lightwell/metadata.json"
           else
             jq -e '.package and .version' "${root}/.lightwell/metadata.json" >/dev/null
             jq -n --arg p "$(params.packageName)" --arg v "$(params.packageVersion)" --arg sha "${normalized_sha}" '{_type:"https://in-toto.io/Statement/v1",subject:[{name:$p,digest:{sha256:$sha}}],predicateType:"https://slsa.dev/provenance/v1",predicate:{buildDefinition:{buildType:"https://lightwell.dev/source-ingestion/v1",externalParameters:{version:$v}},runDetails:{builder:{id:"lightwell/catalog"}}}}' > "${root}/.lightwell/provenance.json"
             cosign attest-blob --key "${key}" --type slsaprovenance --output-file "${root}/.lightwell/provenance.dsse.json" "${root}/.lightwell/provenance.json"
           fi
-          cosign attest-blob --key "${key}" --type slsaprovenance --output-file "${root}/.lightwell/metadata.dsse.json" "${root}/.lightwell/metadata.json"
+          cosign attest-blob --key "${key}" --type lightwell-metadata --output-file "${root}/.lightwell/metadata.dsse.json" "${root}/.lightwell/metadata.json"
           md=".lightwell/metadata.json"; mds=".lightwell/metadata.dsse.json"; binding="${root}/.lightwell/catalog-binding.json"
           base='{"schema":"lightwell.catalog-binding","version":2}'
           jq -n --arg so "${origin_rel}" --arg ss "$(sha256sum "${origin}" | awk '{print $1}')" --arg tr "${transform_rel}" --arg ts "$(sha256sum "${transform}" | awk '{print $1}')" --arg ar "${archive_rel}" --arg as "${normalized_sha}" --arg md "${md}" --arg ms "$(sha256sum "${root}/${md}" | awk '{print $1}')" --arg mds "${mds}" --arg mdsd "$(sha256sum "${root}/${mds}" | awk '{print $1}')" \
             '{schema:"lightwell.catalog-binding",version:2,source_origin:{path:$so,sha256:$ss},transformation:{path:$tr,sha256:$ts},normalized_archive:{path:$ar,sha256:$as},metadata:{path:$md,sha256:$ms},metadata_dsse:{path:$mds,sha256:$mdsd}}' > "${binding}"
-          if [ "${registry}" = rhtl ]; then jq --arg p ".lightwell/rhtl-provenance-response.bin" --arg s "$(sha256sum "${root}/.lightwell/rhtl-provenance-response.bin" | awk '{print $1}')" --arg u "$(jq -r '.provenance_url // ""' "${origin}")" --argjson st "$(jq -c '.provenance_response_status // null' "${origin}")" '. + {upstream_provenance_response:{path:$p,sha256:$s,url:$u,status:$st}}' "${binding}" > "${binding}.tmp"; mv "${binding}.tmp" "${binding}"; else jq --arg p ".lightwell/provenance.dsse.json" --arg s "$(sha256sum "${root}/.lightwell/provenance.dsse.json" | awk '{print $1}')" '. + {provenance_dsse:{path:$p,sha256:$s}}' "${binding}" > "${binding}.tmp"; mv "${binding}.tmp" "${binding}"; fi
+          if [ "${registry}" = rhtl ]; then jq --arg p "provenance-response.bin" --arg s "$(sha256sum "${root}/provenance-response.bin" | awk '{print $1}')" --arg u "$(jq -r '.provenance_url // ""' "${origin}")" --argjson st "$(jq -c '.provenance_response_status // null' "${origin}")" '. + {upstream_provenance_response:{path:$p,sha256:$s,url:$u,status:$st}}' "${binding}" > "${binding}.tmp"; mv "${binding}.tmp" "${binding}"; else jq --arg p ".lightwell/provenance.dsse.json" --arg s "$(sha256sum "${root}/.lightwell/provenance.dsse.json" | awk '{print $1}')" '. + {provenance_dsse:{path:$p,sha256:$s}}' "${binding}" > "${binding}.tmp"; mv "${binding}.tmp" "${binding}"; fi
           cp "${binding}" "${root}/signer-authorization.json"; cp "${binding}" "${root}/artifact-boundary.json"
           printf '%s' signer-authorization.json > "$(results.signerAuthorizationPath.path)"; printf '%s' artifact-boundary.json > "$(results.artifactBoundaryPath.path)"; printf '%s' .lightwell/metadata.json > "$(results.metadataPath.path)"

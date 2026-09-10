@@ -38,11 +38,11 @@ spec:
           test -s "${auth}" && test -s "${boundary}" && test -s "${key}"; cmp -s "${auth}" "${boundary}"
           jq -e '.schema == "lightwell.catalog-binding" and .version == 2 and (.provenance_dsse != null or .upstream_provenance_response != null) and ((.provenance_dsse == null) or (.upstream_provenance_response == null))' "${auth}" >/dev/null
           jq -r 'to_entries[] | select(.value|type == "object" and has("path") and has("sha256")) | [.key,.value.path,.value.sha256] | @tsv' "${auth}" | while IFS=$'\t' read -r name path expected; do
-            case "${path}" in /*|*../*|../*) exit 1;; esac; file="${root}/${path}"; test -f "${file}"; actual="$(sha256sum "${file}" | awk '{print $1}')"; test "${actual}" = "$(printf '%s' "${expected}" | tr '[:upper:]' '[:lower:]')" || { echo "binding digest mismatch: ${name}" >&2; exit 1; }
+            case "${path}" in /*|*../*|../*|*//*|'') exit 1;; esac; file="${root}/${path}"; test -f "${file}"; actual="$(sha256sum "${file}" | awk '{print $1}')"; test "${actual}" = "$(printf '%s' "${expected}" | tr '[:upper:]' '[:lower:]')" || { echo "binding digest mismatch: ${name}" >&2; exit 1; }
           done
           cosign verify-blob-attestation --key "${key}" --signature "${root}/.lightwell/metadata.dsse.json" "${root}/.lightwell/metadata.json" >/dev/null
           if jq -e 'has("provenance_dsse")' "${auth}" >/dev/null; then
             cosign verify-blob-attestation --key "${key}" --signature "${root}/.lightwell/provenance.dsse.json" "${root}/.lightwell/provenance.json" >/dev/null
           else
-            test ! -e "${root}/.lightwell/provenance.dsse.json"; test -s "${root}/.lightwell/rhtl-provenance-response.bin"
+            test ! -e "${root}/.lightwell/provenance.dsse.json"; cmp -s "${root}/provenance-response.bin" "${root}/.lightwell/provenance-response.bin"
           fi

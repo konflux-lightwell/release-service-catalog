@@ -76,8 +76,11 @@ spec:
         - -ceu
         - |
           root="$(workspaces.release.path)"
-          origin="${root}/$(params.sourceOriginPath)"
-          transformation="${root}/$(params.transformationPath)"
+          safe_path() { case "$1" in /*|*../*|../*|*//*|'') return 1;; esac; }
+          origin_rel="$(params.sourceOriginPath)"; transformation_rel="$(params.transformationPath)"; response_rel="$(params.rhtlResponsePath)"
+          safe_path "${origin_rel}" && safe_path "${transformation_rel}" && safe_path "${response_rel}"
+          origin="${root}/${origin_rel}"
+          transformation="${root}/${transformation_rel}"
           test -s "${origin}" && test -s "${transformation}"
           source_sha="$(jq -r '.acquired_artifact.sha256 // empty' "${origin}" | tr '[:upper:]' '[:lower:]')"
           source_registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"
@@ -90,8 +93,9 @@ spec:
           archive_sha="$(sha256sum "${archive}" | awk '{print $1}')"
           jq -e --arg p "$(params.packageName)" --arg v "$(params.packageVersion)" \
             '.package == $p and .version == $v and (.acquired_artifact.sha256|test("^[0-9a-fA-F]{64}$"))' "${origin}" >/dev/null
-          jq -e --arg input "${source_sha}" --arg output "${archive_sha}" \
-            '.schema == "lightwell.sdist-transformation" and .input.sha256 == $input and .source_origin.sha256 == $input and .output.sha256 == $output' "${transformation}" >/dev/null
+          source_origin_sha="$(sha256sum "${origin}" | awk '{print $1}')"
+          jq -e --arg input "${source_sha}" --arg origin "${source_origin_sha}" --arg output "${archive_sha}" \
+            '.schema == "lightwell.sdist-transformation" and .input.sha256 == $input and .source_origin.sha256 == $origin and .output.sha256 == $output' "${transformation}" >/dev/null
           if [ "${source_registry}" = rhtl ]; then
             test -s "${root}/$(params.rhtlResponsePath)"
           fi

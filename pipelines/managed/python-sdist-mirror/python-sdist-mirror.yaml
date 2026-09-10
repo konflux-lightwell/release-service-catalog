@@ -55,6 +55,9 @@ spec:
     - name: taisceImage
       type: string
       description: Required full immutable digest image for the Taisce task, supplied by deployment.
+    - name: validatorImage
+      type: string
+      description: Required full immutable digest image for pre-resolver validation, supplied by deployment.
     - name: sourceOriginPath
       type: string
       description: Path to the source-origin sidecar in the extracted artifact.
@@ -74,14 +77,15 @@ spec:
           - name: catalogRevision
           - name: taisceRevision
           - name: taisceImage
+          - name: validatorImage
         steps:
           - name: validate
-            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            image: $(params.validatorImage)
             script: |
               #!/bin/sh
               set -eu
               printf '%s\n' "$(params.catalogRevision)" "$(params.taisceRevision)" | grep -Eq '^[0-9a-fA-F]{40}$'
-              printf '%s\n' "$(params.taisceImage)" | grep -Eq '^.+@sha256:[0-9a-fA-F]{64}$'
+              printf '%s\n' "$(params.taisceImage)" "$(params.validatorImage)" | grep -Eq '^.+@sha256:[0-9a-fA-F]{64}$'
               test -n "$(params.taisceRevision)"
       params:
         - name: catalogRevision
@@ -90,6 +94,8 @@ spec:
           value: $(params.taisceCuanGitRevision)
         - name: taisceImage
           value: $(params.taisceImage)
+        - name: validatorImage
+          value: $(params.validatorImage)
 
     # ── 1. Collect release and snapshot data ──────────────────────────────────
     - name: collect-data
@@ -159,7 +165,7 @@ spec:
               {"resultIndex": 6, "key": ".packageName"},
               {"resultIndex": 7, "key": ".packageVersion"},
               {"resultIndex": 8, "key": ".cosignSecretName"},
-              {"resultIndex": 9, "key": ".cosignPublicKeyPath"}
+              {"resultIndex": 9, "key": ".cosignPublicKeySecretName"}
             ]
 
     # ── 3. Reduce Snapshot ───────────────────────────────────────────────────
