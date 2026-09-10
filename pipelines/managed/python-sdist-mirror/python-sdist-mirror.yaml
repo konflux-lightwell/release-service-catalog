@@ -251,6 +251,40 @@ spec:
         - name: dataPath
           value: $(tasks.collect-data.results.data)
 
+    # Extraction stores the carrier under content/files; materialize it at the release root before consumers run.
+    - name: materialize-lightwell-carrier
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/konflux-ci/release-service-catalog.git
+          - name: revision
+            value: $(params.taskGitRevision)
+          - name: pathInRepo
+            value: tasks/managed/materialize-lightwell-carrier/materialize-lightwell-carrier.yaml
+      runAfter:
+        - extract-py-artifacts
+      params:
+        - name: sourceDataArtifact
+          value: $(tasks.extract-py-artifacts.results.sourceDataArtifact)
+        - name: taskGitUrl
+          value: https://github.com/konflux-ci/release-service-catalog.git
+        - name: taskGitRevision
+          value: $(params.taskGitRevision)
+        - name: ociStorage
+          value: $(params.ociStorage)
+        - name: sourceOriginPath
+          value: $(params.sourceOriginPath)
+        - name: transformationPath
+          value: sdist-transformation.json
+        - name: rhtlResponsePath
+          value: rhtl-response.json
+        - name: provenanceResponsePath
+          value: provenance-response.bin
+      workspaces:
+        - name: release
+          workspace: release
+
     # Prepare and validate signing boundary before publication.
     - name: prepare-release-inputs
       taskRef:
@@ -263,7 +297,7 @@ spec:
           - name: pathInRepo
             value: tasks/managed/prepare-lightwell-release-inputs/prepare-lightwell-release-inputs.yaml
       runAfter:
-        - extract-py-artifacts
+        - materialize-lightwell-carrier
       params:
         - name: sourceDataArtifact
           value: $(tasks.extract-py-artifacts.results.sourceDataArtifact)
