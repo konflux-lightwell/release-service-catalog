@@ -5,6 +5,7 @@ pipeline="${base}/pipelines/managed/python-sdist-mirror/python-sdist-mirror.yaml
 prepare="${base}/tasks/managed/prepare-lightwell-release-inputs/prepare-lightwell-release-inputs.yaml"
 signer="${base}/tasks/managed/sign-lightwell-release/sign-lightwell-release.yaml"
 verifier="${base}/tasks/managed/verify-lightwell-release/verify-lightwell-release.yaml"
+materializer="${base}/tasks/managed/materialize-lightwell-carrier/materialize-lightwell-carrier.yaml"
 grep -q 'name: taisceImage' "${pipeline}"
 grep -q 'value: \$(params.taisceImage)' "${pipeline}"
 grep -q 'https://github.com/konflux-lightwell/taisce-cuan.git' "${pipeline}"
@@ -45,8 +46,16 @@ grep -q 'copy_evidence "${raw}" "${root}/.lightwell/provenance-response.bin"' "$
 grep -q 'ln -- "${tmp}" "${target}"' "${signer}"
 grep -q 'test ! -e "${target}"' "${signer}"
 grep -q 'test "${target_sha}" = "${response_sha}"' "${signer}"
+# Version matching is pinned to major 3; v30 and v300 must not be accepted as v3.
+version_re='(^|[[:space:]])v?3([.][0-9]+)?([[:space:]]|$)'
+printf '%s\n' v3 v3.1 3 3.2 | grep -Eq "${version_re}"
+! printf '%s\n' v30 v300 30 3.10.1 | grep -Eq "${version_re}"
+grep -Fq "grep -Eq '(^|[[:space:]])v?3([.][0-9]+)?([[:space:]]|$)'" "${signer}"
 ! grep -q 'params.cosignVersion' "${signer}"
 grep -q "grep -Eq '(^|\[\[:space:\]\])v?3" "${signer}"
+grep -q 'os.fsync(target.fileno())' "${materializer}"
+grep -q 'os.fsync(dir_fd)' "${materializer}"
+grep -q 'os.unlink(tmp)' "${materializer}"
 # Raw evidence is copied without re-signing and transparency logging remains enabled.
 grep -q 'cosign attest-blob.*metadata.*--tlog-upload=true' "${signer}"
 ! grep -q -- '--tlog-upload=false' "${signer}"

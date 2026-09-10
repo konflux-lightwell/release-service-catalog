@@ -91,30 +91,38 @@ spec:
           src, dst = sys.argv[1:]
           parent = os.path.dirname(dst)
           fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
+          dir_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+          tmp = None
           try:
               source_stat = os.fstat(fd)
               if not stat.S_ISREG(source_stat.st_mode):
                   raise RuntimeError("carrier source is not a regular file")
               tmp = os.path.join(parent, ".materialize.%d" % os.getpid())
               flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-              tmp_fd = os.open(tmp, flags, source_stat.st_mode & 0o777)
+              tmp_fd = None
               try:
-                  with os.fdopen(os.dup(fd), "rb") as source, os.fdopen(tmp_fd, "wb") as target:
+                  tmp_fd = os.open(tmp, flags, source_stat.st_mode & 0o777)
+                  with os.fdopen(os.dup(fd), "rb") as source, os.fdopen(os.dup(tmp_fd), "wb") as target:
                       shutil.copyfileobj(source, target)
                       target.flush()
                       os.fsync(target.fileno())
+                  os.close(tmp_fd)
                   tmp_fd = None
                   os.link(tmp, dst)
+                  os.fsync(dir_fd)
               except FileExistsError:
                   raise RuntimeError("carrier destination collision: %s" % dst)
               finally:
                   if tmp_fd is not None:
                       os.close(tmp_fd)
-                  try:
-                      os.unlink(tmp)
-                  except FileNotFoundError:
-                      pass
+                  if tmp is not None:
+                      try:
+                          os.unlink(tmp)
+                      except FileNotFoundError:
+                          pass
+                  os.fsync(dir_fd)
           finally:
+              os.close(dir_fd)
               os.close(fd)
           PY
             test ! -L "${src}" && test -f "${src}" && test ! -L "${dst}" && test -f "${dst}"
