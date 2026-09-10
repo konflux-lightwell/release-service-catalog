@@ -6,8 +6,8 @@ metadata:
   name: prepare-lightwell-release-inputs
 spec:
   description: >-
-    Materializes the extracted Trusted Artifact into the shared release workspace and validates acquisition
-    metadata. It does not authorize publication or create DSSE evidence.
+    Materializes and fail-closed validates the OCI carrier: source-origin.json, sdist-transformation.json,
+    optional opaque rhtl-response.json, and the normalized sdist. All identities and independent digests are checked.
   params:
     - name: sourceDataArtifact
       type: string
@@ -20,6 +20,12 @@ spec:
     - name: sourceOriginPath
       type: string
       default: source-origin.json
+    - name: transformationPath
+      type: string
+      default: sdist-transformation.json
+    - name: rhtlResponsePath
+      type: string
+      default: rhtl-response.json
     - name: sdistPath
       type: string
     - name: ociStorage
@@ -28,14 +34,19 @@ spec:
       type: string
     - name: taskGitRevision
       type: string
-    - name: orasOptions
+    - name: packageName
       type: string
-      default: ""
+    - name: packageVersion
+      type: string
+    - name: sourceRegistry
+      type: string
   workspaces:
     - name: release
   results:
     - name: sdistPath
     - name: sourceOriginPath
+    - name: transformationPath
+    - name: rhtlResponsePath
   stepTemplate:
     securityContext:
       runAsUser: 1001
@@ -45,7 +56,7 @@ spec:
       - name: IMAGE_EXPIRES_AFTER
         value: 1d
       - name: ORAS_OPTIONS
-        value: $(params.orasOptions)
+        value: ""
   steps:
     - name: use-trusted-artifact
       ref:
@@ -73,18 +84,22 @@ spec:
         - |
           root="$(workspaces.release.path)"
           origin="${root}/$(params.sourceOriginPath)"
-          candidate="${root}/$(params.sdistPath)"
-          test -s "${origin}" || { echo "missing source-origin.json" >&2; exit 1; }
-          if [ -d "${candidate}" ]; then
-            mapfile -t files < <(find "${candidate}" -maxdepth 1 -type f -name '*.tar.gz' -print)
-            test "${#files[@]}" -eq 1 || { echo "expected exactly one sdist" >&2; exit 1; }
-            candidate="${files[0]}"
+          transformation="${root}/$(params.transformationPath)"
+          archive="${root}/$(params.sdistPath)"
+          test -s "${origin}" && test -s "${transformation}" && test -s "${archive}"
+          source_sha="$(sha256sum "${origin}" | awk '{print $1}')"
+          archive_sha="$(sha256sum "${archive}" | awk '{print $1}')"
+          jq -e --arg p "$(params.packageName)" --arg v "$(params.packageVersion)" --arg r "$(params.sourceRegistry)" \
+            '.package == $p and .version == $v and .source_registry == $r and (.verified_sha256|test("^[0-9a-fA-F]{64}$"))' "${origin}" >/dev/null
+          jq -e --arg input "$(jq -r '.input.sha256' "${transformation}")" --arg origin "$(jq -r '.source_origin.sha256' "${transformation}")" --arg output "${archive_sha}" \
+            '.schema == "lightwell.sdist-transformation" and .input.sha256 == $input and .source_origin.sha256 == $origin and .output.sha256 == $output and $input == (.source_origin.sha256)' "${transformation}" >/dev/null
+          test "${source_sha}" = "$(jq -r '.verified_sha256' "${origin}" | tr '[:upper:]' '[:lower:]')"
+          test "$(jq -r '.source_origin.sha256' "${transformation}" | tr '[:upper:]' '[:lower:]')" = "${source_sha}"
+          test "$(jq -r '.output.sha256' "${transformation}" | tr '[:upper:]' '[:lower:]')" = "${archive_sha}"
+          if [ "$(params.sourceOriginType)" = rhtl ]; then
+            test -s "${root}/$(params.rhtlResponsePath)"
           fi
-          test -s "${candidate}" || { echo "missing sdist" >&2; exit 1; }
-          jq -e --arg type "$(params.sourceOriginType)" \
-            'type == "object" and ((.source_registry // "") | type == "string") and ((.package // "") | type == "string") and ((.version // "") | type == "string") and ((.verified_sha256 // "") | test("^[0-9a-fA-F]{64}$"))' "${origin}" >/dev/null || {
-              echo "source-origin lacks canonical package/version/registry and verified_sha256" >&2; exit 1; }
-          relative="${candidate#${root}/}"
-          origin_relative="${origin#${root}/}"
-          printf '%s' "${relative}" > "$(results.sdistPath.path)"
-          printf '%s' "${origin_relative}" > "$(results.sourceOriginPath.path)"
+          printf '%s' "$(params.sdistPath)" > "$(results.sdistPath.path)"
+          printf '%s' "$(params.sourceOriginPath)" > "$(results.sourceOriginPath.path)"
+          printf '%s' "$(params.transformationPath)" > "$(results.transformationPath.path)"
+          printf '%s' "$(params.rhtlResponsePath)" > "$(results.rhtlResponsePath.path)"

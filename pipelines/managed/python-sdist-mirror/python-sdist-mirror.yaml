@@ -48,10 +48,10 @@ spec:
       default: "1h0m0s"
     - name: taskGitRevision
       type: string
-      description: >-
-        Required full 40-character immutable commit SHA for the catalog commit containing every resolver path above;
-        mutable branches and abbreviated SHAs are rejected by review and deployment policy.
-      default: ""
+      description: Required full immutable catalog commit SHA supplied by deployment schema (must be 40 hex characters).
+    - name: taisceCuanGitRevision
+      type: string
+      description: Required full Taisce v2 commit SHA supplied by deployment schema; must be published 48da35e.
     - name: sourceOriginType
       type: string
       description: Source-origin sidecar type (pypi or rhtl). PyPI does not require RHTL metadata.
@@ -68,8 +68,29 @@ spec:
     - name: release
 
   tasks:
+    # Deployment admission must validate full immutable resolver revisions before resolver use.
+    - name: validate-resolver-revisions
+      taskSpec:
+        params:
+          - name: catalogRevision
+          - name: taisceRevision
+        steps:
+          - name: validate
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            script: |
+              #!/bin/sh
+              set -eu
+              printf '%s\n' "$(params.catalogRevision)" "$(params.taisceRevision)" | grep -Eq '^[0-9a-fA-F]{40}$'
+              test "$(params.taisceRevision)" = "48da35ef1c068c7d5185e4bdda029f9378f85294"
+      params:
+        - name: catalogRevision
+          value: $(params.taskGitRevision)
+        - name: taisceRevision
+          value: $(params.taisceCuanGitRevision)
+
     # ── 1. Collect release and snapshot data ──────────────────────────────────
     - name: collect-data
+      runAfter: [validate-resolver-revisions]
       taskRef:
         resolver: "git"
         params:
@@ -243,6 +264,12 @@ spec:
       params:
         - name: sourceDataArtifact
           value: $(tasks.extract-py-artifacts.results.sourceDataArtifact)
+        - name: packageName
+          value: $(tasks.collect-task-params.results.extractedValues[6])
+        - name: packageVersion
+          value: $(tasks.collect-task-params.results.extractedValues[7])
+        - name: sourceRegistry
+          value: $(params.sourceOriginType)
         - name: dataDir
           value: /var/workdir/content
         - name: sdistPath
@@ -277,6 +304,10 @@ spec:
           value: $(tasks.prepare-release-inputs.results.sourceOriginPath)
         - name: sdistPath
           value: $(tasks.prepare-release-inputs.results.sdistPath)
+        - name: transformationPath
+          value: $(tasks.prepare-release-inputs.results.transformationPath)
+        - name: rhtlResponsePath
+          value: $(tasks.prepare-release-inputs.results.rhtlResponsePath)
         - name: cosignSecretName
           value: $(tasks.collect-task-params.results.extractedValues[8])
         - name: packageName
@@ -322,7 +353,7 @@ spec:
           - name: url
             value: https://github.com/konflux-lightwell/taisce-cuan.git
           - name: revision
-            value: 53ea1359c066e28463ae7a49234d2ccc84e59c4f
+            value: $(params.taisceCuanGitRevision)
           - name: pathInRepo
             value: tekton/tasks/push-source-to-lightwell-builds/0.1/push-source-to-lightwell-builds.yaml
       runAfter:
