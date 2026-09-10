@@ -55,9 +55,21 @@ spec:
           test ! -L "${origin}" && test -s "${origin}"
           test ! -L "${transform}" && test -s "${transform}"
           test ! -L "${archive}" && test -s "${archive}"
-          key=/var/run/lightwell/signing/cosign.key
-          test ! -L "${key}" && test -f "${key}" && test -s "${key}"
-          test "$(find /var/run/lightwell/signing -maxdepth 1 -type f -print | wc -l)" -eq 1
+          signing_mount=/var/run/lightwell/signing
+          key="${signing_mount}/cosign.key"
+          test -e "${key}" && test -f "${key}" && test -s "${key}"
+          # Kubernetes Secret projections expose keys through the current ..data directory. Require the
+          # deterministic key name and permit only that projection symlink; never discover a key via find.
+          if [ -L "${key}" ]; then
+            test "$(readlink -- "${key}")" = "..data/cosign.key"
+          fi
+          test -z "$(find "${signing_mount}" -maxdepth 1 -type f ! -name cosign.key -print -quit)"
+          signing_mount_realpath="$(realpath -e -- "${signing_mount}")"
+          key_realpath="$(realpath -e -- "${key}")"
+          case "${key_realpath}" in
+            "${signing_mount_realpath}/"*) ;;
+            *) printf 'signing key resolves outside the signing mount: %s\n' "${key_realpath}" >&2; exit 1 ;;
+          esac
           test -z "$(find "${root}/.lightwell" -type l -print -quit)"
           cosign version 2>/dev/null | grep -Eq '(^|[[:space:]])v?$(params.cosignVersion)([.][0-9]+)?([[:space:]]|$)'
           upstream_sha="$(jq -r .acquired_artifact.sha256 "${origin}" | tr '[:upper:]' '[:lower:]')"; registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"; normalized_sha="$(sha256sum "${archive}" | awk '{print $1}')"
