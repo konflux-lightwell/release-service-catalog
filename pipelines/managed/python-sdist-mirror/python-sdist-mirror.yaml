@@ -55,7 +55,7 @@ spec:
       description: >-
         Required full 40-character immutable commit SHA for the catalog commit containing every resolver path above;
         mutable branches and abbreviated SHAs are rejected by review and deployment policy.
-      default: "b100355bb7a9a4c7d77c759037493d1c6dc3d584"
+      default: "e9265cea3f3edfce86d1a7e68083f5f99128b6b4"
     - name: sourceOriginType
       type: string
       description: Source-origin sidecar type (pypi or rhtl). PyPI does not require RHTL metadata.
@@ -63,11 +63,21 @@ spec:
     - name: sourceOriginPath
       type: string
       description: Path to the source-origin sidecar in the extracted artifact.
-      default: ""
+      default: "source-origin.json"
     - name: ociStorage
       type: string
       description: OCI storage repository for Trusted Artifacts.
       default: "quay.io/konflux-ci/release-service-trusted-artifacts"
+    - name: taisceCuanGitUrl
+      type: string
+      description: Immutable taisce-cuan repository containing push-source-to-lightwell-builds.
+      default: "https://github.com/konflux-lightwell/taisce-cuan.git"
+    - name: taisceCuanGitRevision
+      type: string
+      description: Full immutable taisce-cuan commit SHA.
+      default: "b010b2eccdd660d505bd780f3712803af553ad43"
+  workspaces:
+    - name: release
 
   tasks:
     # ── 1. Collect release and snapshot data ──────────────────────────────────
@@ -229,10 +239,70 @@ spec:
         - name: dataPath
           value: $(tasks.collect-data.results.data)
 
-    # Source mirroring is fail-closed. No taisce-cuan immutable revision and task interface are
-    # present in this catalog commit, so wiring archive-sources would be unsafe. The follow-up change
-    # must prove the committed taisce task path/revision and pass sdistPath, sourceOriginPath,
-    # signerAuthorizationPath, and artifactBoundaryPath before adding a push task.
+    # Prepare and validate signing boundary before publication.
+    - name: prepare-release-inputs
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: $(params.taskGitUrl)
+          - name: revision
+            value: $(params.taskGitRevision)
+          - name: pathInRepo
+            value: tasks/managed/prepare-lightwell-release-inputs/prepare-lightwell-release-inputs.yaml
+      runAfter:
+        - extract-py-artifacts
+      params:
+        - name: sourceDataArtifact
+          value: $(tasks.extract-py-artifacts.results.sourceDataArtifact)
+        - name: dataDir
+          value: /var/workdir/content
+        - name: sdistPath
+          value: files
+        - name: sourceOriginPath
+          value: $(params.sourceOriginPath)
+        - name: sourceOriginType
+          value: $(params.sourceOriginType)
+        - name: ociStorage
+          value: $(params.ociStorage)
+        - name: taskGitUrl
+          value: $(params.taskGitUrl)
+        - name: taskGitRevision
+          value: $(params.taskGitRevision)
+      workspaces:
+        - name: release
+          workspace: release
+
+    - name: push-source
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: $(params.taisceCuanGitUrl)
+          - name: revision
+            value: $(params.taisceCuanGitRevision)
+          - name: pathInRepo
+            value: tekton/tasks/push-source-to-lightwell-builds/0.1/push-source-to-lightwell-builds.yaml
+      runAfter:
+        - prepare-release-inputs
+      params:
+        - name: sdistPath
+          value: $(tasks.prepare-release-inputs.results.sdistPath)
+        - name: sourceOriginPath
+          value: $(tasks.prepare-release-inputs.results.sourceOriginPath)
+        - name: signerAuthorizationPath
+          value: $(tasks.prepare-release-inputs.results.signerAuthorizationPath)
+        - name: artifactBoundaryPath
+          value: $(tasks.prepare-release-inputs.results.artifactBoundaryPath)
+        - name: packageName
+          value: $(tasks.collect-task-params.results.extractedValues[6])
+        - name: packageVersion
+          value: $(tasks.collect-task-params.results.extractedValues[7])
+        - name: gitlabGroup
+          value: $(tasks.collect-task-params.results.extractedValues[1])
+      workspaces:
+        - name: workspace
+          workspace: release
 
   finally:
     # ── 7. Cleanup internal requests ─────────────────────────────────────────

@@ -1,0 +1,125 @@
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: prepare-lightwell-release-inputs
+spec:
+  description: >-
+    Materializes a Trusted Artifact release input and validates its opaque source-origin sidecar. Creates
+    signer authorization and artifact boundary files before publication. RHTL evidence is carried verbatim;
+    this task does not verify or re-sign upstream RHTL statements.
+  params:
+    - name: sourceDataArtifact
+      type: string
+      description: Trusted Artifact containing the extracted sdist and source-origin.json.
+    - name: dataDir
+      type: string
+      default: /var/workdir
+    - name: sourceOriginType
+      type: string
+      default: pypi
+    - name: sourceOriginPath
+      type: string
+      default: source-origin.json
+    - name: sdistPath
+      type: string
+      description: Relative path of the sdist in the Trusted Artifact.
+    - name: ociStorage
+      type: string
+    - name: taskGitUrl
+      type: string
+    - name: taskGitRevision
+      type: string
+    - name: signerAuthorizationPath
+      type: string
+      default: signer-authorization.json
+    - name: artifactBoundaryPath
+      type: string
+      default: artifact-boundary.json
+    - name: orasOptions
+      type: string
+      default: ""
+  workspaces:
+    - name: release
+  results:
+    - name: sdistPath
+      type: string
+    - name: sourceOriginPath
+      type: string
+    - name: signerAuthorizationPath
+      type: string
+    - name: artifactBoundaryPath
+      type: string
+  stepTemplate:
+    securityContext:
+      runAsUser: 1001
+    env:
+      - name: HOME
+        value: /tekton/home
+      - name: IMAGE_EXPIRES_AFTER
+        value: 1d
+      - name: ORAS_OPTIONS
+        value: $(params.orasOptions)
+  steps:
+    - name: use-trusted-artifact
+      ref:
+        resolver: git
+        params:
+          - name: url
+            value: $(params.taskGitUrl)
+          - name: revision
+            value: $(params.taskGitRevision)
+          - name: pathInRepo
+            value: stepactions/use-trusted-artifact/use-trusted-artifact.yaml
+      params:
+        - name: workDir
+          value: $(params.dataDir)
+        - name: sourceDataArtifact
+          value: $(params.sourceDataArtifact)
+    - name: validate-and-prepare
+      image: quay.io/konflux-ci/release-service-utils@sha256:5546fa78d3c88d7b6a2e8cff8902f7757f00541d0bbaf113b9f293133894afa3
+      computeResources:
+        limits: {memory: 128Mi}
+        requests: {memory: 128Mi, cpu: 10m}
+      command: [bash]
+      args:
+        - -ceu
+        - |
+          root="$(workspaces.release.path)"
+          origin="${root}/$(params.sourceOriginPath)"
+          sdist="${root}/$(params.sdistPath)"
+          test -s "${origin}" || {
+            echo "missing required source-origin sidecar: ${origin}" >&2
+            exit 1
+          }
+          test -s "${sdist}" || {
+            echo "missing required sdist: ${sdist}" >&2
+            exit 1
+          }
+          case "$(params.sourceOriginType)" in
+            pypi) ;;
+            rhtl)
+              jq -e \
+                'type == "object" and (.responsePath // .rhtlResponsePath // .response)' \
+                "${origin}" >/dev/null || {
+                  echo "missing required RHTL raw response reference" >&2
+                  exit 1
+                }
+              ;;
+            *)
+              echo "unsupported source-origin type" >&2
+              exit 1
+              ;;
+          esac
+          jq -e 'type == "object" and (.subject // .source // .sourceSha256)' "${origin}" >/dev/null || {
+            echo "source-origin lacks exact source binding" >&2; exit 1; }
+          jq -n --arg origin "${origin}" \
+            '{kind:"lightwell-signer-authorization",sourceOriginPath:$origin,validated:true}' \
+            > "${root}/$(params.signerAuthorizationPath)"
+          jq -n --arg sdist "${sdist}" \
+            '{kind:"lightwell-artifact-boundary",sdistPath:$sdist,validated:true}' \
+            > "${root}/$(params.artifactBoundaryPath)"
+          printf '%s' "${sdist}" > "$(results.sdistPath.path)"
+          printf '%s' "${origin}" > "$(results.sourceOriginPath.path)"
+          printf '%s' "${root}/$(params.signerAuthorizationPath)" > "$(results.signerAuthorizationPath.path)"
+          printf '%s' "${root}/$(params.artifactBoundaryPath)" > "$(results.artifactBoundaryPath.path)"
