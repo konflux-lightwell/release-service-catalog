@@ -308,7 +308,7 @@ spec:
         - name: rhtlResponsePath
           value: $(tasks.prepare-release-inputs.results.rhtlResponsePath)
         - name: provenanceResponsePath
-          value: provenance-response.bin
+          value: $(tasks.prepare-release-inputs.results.provenanceResponsePath)
         - name: cosignSecretName
           value: $(tasks.collect-task-params.results.extractedValues[8])
         - name: packageName
@@ -335,8 +335,6 @@ spec:
           value: $(tasks.sign-release.results.signerAuthorizationPath)
         - name: metadataPath
           value: $(tasks.sign-release.results.metadataPath)
-        - name: sdistPath
-          value: $(tasks.prepare-release-inputs.results.sdistPath)
         - name: artifactBoundaryPath
           value: $(tasks.sign-release.results.artifactBoundaryPath)
         - name: cosignPublicKeySecretName
