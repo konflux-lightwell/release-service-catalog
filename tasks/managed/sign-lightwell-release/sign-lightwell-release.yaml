@@ -50,7 +50,7 @@ spec:
           provenance_rel="$(params.provenanceResponsePath)"
           safe_path() { case "$1" in ''|'.'|/*|*../*|../*|*//* ) return 1;; esac; }
           origin_rel="$(params.sourceOriginPath)"; transform_rel="$(params.transformationPath)"; archive_rel="$(params.sdistPath)"; response_rel="$(params.rhtlResponsePath)"
-          safe_path "${origin_rel}" && safe_path "${transform_rel}" && safe_path "${archive_rel}" && safe_path "${response_rel}"
+          safe_path "${origin_rel}" && safe_path "${transform_rel}" && safe_path "${archive_rel}" && safe_path "${response_rel}" && safe_path "${provenance_rel}"
           origin="${root}/${origin_rel}"; transform="${root}/${transform_rel}"; archive="${root}/${archive_rel}"
           test ! -L "${origin}" && test -s "${origin}"
           test ! -L "${transform}" && test -s "${transform}"

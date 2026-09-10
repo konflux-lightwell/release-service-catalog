@@ -44,7 +44,23 @@ spec:
           done
           cosign verify-blob-attestation --key "${key}" --type lightwell-metadata --signature "${root}/.lightwell/metadata.dsse.json" "${root}/.lightwell/metadata.json" >/dev/null
           if jq -e 'has("provenance_dsse")' "${auth}" >/dev/null; then
+            # PyPI: provenance is represented only by the signed DSSE statement.
+            test ! -e "${root}/.lightwell/provenance-response.bin"
+            test ! -e "${root}/provenance-response.bin"
             cosign verify-blob-attestation --key "${key}" --type https://slsa.dev/provenance/v1 --signature "${root}/.lightwell/provenance.dsse.json" "${root}/.lightwell/provenance.json" >/dev/null
+          elif jq -e 'has("upstream_provenance_response")' "${auth}" >/dev/null; then
+            # Advertised upstream provenance: require both immutable raw-response copies.
+            test ! -e "${root}/.lightwell/provenance.dsse.json"
+            test -s "${root}/provenance-response.bin"; test -s "${root}/.lightwell/provenance-response.bin"
+            cmp -s "${root}/provenance-response.bin" "${root}/.lightwell/provenance-response.bin"
+            test ! -e "${root}/rhtl-response.json"
           else
-            test ! -e "${root}/.lightwell/provenance.dsse.json"; test -s "${root}/.lightwell/provenance-response.bin"; cmp -s "${root}/provenance-response.bin" "${root}/.lightwell/provenance-response.bin"
+            # No upstream provenance: the binding must cover the RHTL index response.
+            test ! -e "${root}/.lightwell/provenance.dsse.json"
+            test ! -e "${root}/provenance-response.bin"
+            test -s "${root}/rhtl-response.json"
+            index_path="$(jq -r '.upstream_provenance_unavailable.index_response.path' "${auth}")"
+            index_expected="$(jq -r '.upstream_provenance_unavailable.index_response.sha256' "${auth}" | tr '[:upper:]' '[:lower:]')"
+            test "${index_path}" = rhtl-response.json
+            test "$(sha256sum "${root}/${index_path}" | awk '{print $1}')" = "${index_expected}"
           fi

@@ -43,6 +43,17 @@ grep -q 'cp --preserve=all "${raw}" "${root}/provenance-response.bin"' "${signer
 grep -q 'cp --preserve=all "${raw}" "${root}/.lightwell/provenance-response.bin"' "${signer}"
 ! grep -q 'jq --arg p ".lightwell/provenance-response.bin"' "${signer}"
 grep -q 'test -s "${root}/.lightwell/provenance-response.bin"' "${verifier}"
+# All three binding variants must dispatch to their own evidence contract.
+grep -q "has(\"provenance_dsse\")" "${verifier}"
+grep -q "has(\"upstream_provenance_response\")" "${verifier}"
+grep -q 'index_response.path' "${verifier}"
+grep -q 'test ! -e "${root}/provenance-response.bin"' "${verifier}"
+grep -q 'test ! -e "${root}/rhtl-response.json"' "${verifier}"
+# PyPI materialization is explicitly response-free, regardless of provenanceResponsePath.
+materializer="${base}/tasks/managed/materialize-lightwell-carrier/materialize-lightwell-carrier.yaml"
+grep -q 'PyPI provenance is generated and verified as DSSE' "${materializer}"
+! sed -n '/pypi.org)/,/rhtl)/p' "${materializer}" | grep -q 'copy_one.*provenanceResponsePath'
+! sed -n '/pypi.org)/,/rhtl)/p' "${materializer}" | grep -q 'valid_provenance_url'
 ! sed -n '/- name: verify-release/,/- name: push-source/p' "${pipeline}" | grep -q 'name: sdistPath'
 grep -q 'gitSecretName' "${pipeline}"
 grep -q 'gitlabUrl' "${pipeline}"

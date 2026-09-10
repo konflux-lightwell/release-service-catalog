@@ -37,6 +37,15 @@ registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"
 provenance_present="$(jq -r 'if (has("provenance_url") and .provenance_url != null) then "true" else "false" end' "${origin}")"
 test "${registry}" = pypi.org && test "${provenance_present}" = false
 test ! -e "${tmp}/pypi-null/content/files/provenance-response.bin"
+# PyPI remains response-free even when an upstream field is present and a raw response exists.
+mkdir -p "${tmp}/pypi-advertised/content/files"
+printf '{"source_registry":"pypi.org","provenance_url":"https://example.invalid/provenance"}\n' > "${tmp}/pypi-advertised/content/files/source-origin.json"
+printf '\0must-not-copy\n' > "${tmp}/pypi-advertised/content/files/provenance-response.bin"
+origin="${tmp}/pypi-advertised/content/files/source-origin.json"
+registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"
+test "${registry}" = pypi.org
+# This is the materializer's dispatch contract: no PyPI branch copy is permitted.
+test ! -e "${tmp}/pypi-advertised/provenance-response.bin"
 
 # RHTL null is also not advertised, so it requires only rhtl-response.json.
 mkdir -p "${tmp}/rhtl-null/content/files"

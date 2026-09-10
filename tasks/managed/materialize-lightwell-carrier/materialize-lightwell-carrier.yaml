@@ -167,10 +167,8 @@ spec:
           }
           case "${registry}" in
             pypi.org)
-              if [ "${provenance_present}" = true ]; then
-                valid_provenance_url "${provenance_url}"
-                copy_one "$(params.provenanceResponsePath)"
-              fi
+              # PyPI provenance is generated and verified as DSSE by the signer; carrier
+              # materialization must never consume a raw provenance response.
               ;;
             rhtl)
               if [ "${provenance_present}" = true ]; then
