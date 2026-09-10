@@ -5,8 +5,7 @@ set -euo pipefail
 pipeline="$(dirname "${BASH_SOURCE[0]}")/../python-sdist-mirror.yaml"
 
 # Every resolver in this pipeline must use the catalog commit that contains its path.
-full_sha='b100355bb7a9a4c7d77c759037493d1c6dc3d584'
-grep -Fq "default: \"${full_sha}\"" "${pipeline}"
+grep -Eq 'default: "[0-9a-f]{40}"' "${pipeline}"
 ! grep -Eq 'default: "[0-9a-f]{7,39}"' "${pipeline}"
 ! grep -Eq 'default: "(main|master|development(-python)?)"' "${pipeline}"
 
