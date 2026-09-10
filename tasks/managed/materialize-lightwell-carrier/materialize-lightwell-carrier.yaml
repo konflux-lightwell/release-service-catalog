@@ -87,16 +87,19 @@ spec:
           copy_one "${output_path}"
           origin="${root}/$(params.sourceOriginPath)"
           registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"
-          provenance_present="$(jq -r 'if has("provenance_url") then "true" else "false" end' "${origin}")"
+          # JSON null is the explicit no-advertisement value emitted by Taisce. Any other present value is
+          # an advertisement and must validate as a non-empty HTTP(S) URL; malformed values must never downgrade.
+          provenance_present="$(jq -r 'if (has("provenance_url") and .provenance_url != null) then "true" else "false" end' "${origin}")"
           provenance_url="$(jq -r '.provenance_url // empty' "${origin}")"
           case "${registry}" in
             pypi.org)
-              # PyPI carries neither response artifact, and any advertised field is invalid for this source.
-              test "${provenance_present}" = false
+              if [ "${provenance_present}" = true ]; then
+                printf '%s' "${provenance_url}" | grep -Eq '^https?://[^[:space:]]+$'
+                copy_one "$(params.provenanceResponsePath)"
+              fi
               ;;
             rhtl)
               if [ "${provenance_present}" = true ]; then
-                # A present field is an advertisement: empty or malformed values must fail, never downgrade.
                 printf '%s' "${provenance_url}" | grep -Eq '^https?://[^[:space:]]+$'
                 copy_one "$(params.provenanceResponsePath)"
               else

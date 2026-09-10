@@ -21,16 +21,25 @@ printf 'archive' > "${tmp}/release/content/files/dist/pkg.tar.gz"
 root="${tmp}/release"; files="${root}/content/files"; rel='dist/pkg.tar.gz'; src="${files}/${rel}"; dst="${root}/${rel}"
 mkdir -p "$(dirname "${dst}")"; test ! -e "${dst}"; cp -p "${src}" "${dst}"; cmp -s "${src}" "${dst}"
 ! (rel='../escape'; case "${rel}" in /*|*../*|../*|*//*|'') exit 0;; esac; exit 1)
-# RHTL without an advertised provenance URL must not require provenance-response.bin.
-mkdir -p "${tmp}/rhtl-unavailable/content/files"
-printf '{"source_registry":"rhtl"}\n' > "${tmp}/rhtl-unavailable/content/files/source-origin.json"
-printf 'rhtl\n' > "${tmp}/rhtl-unavailable/content/files/rhtl-response.json"
-origin="${tmp}/rhtl-unavailable/content/files/source-origin.json"
+# JSON null is Taisce's exact no-advertisement shape. PyPI stays response-free.
+mkdir -p "${tmp}/pypi-null/content/files"
+printf '{"source_registry":"pypi.org","source":"https://pypi.org/project/example/","provenance_url":null}\n' > "${tmp}/pypi-null/content/files/source-origin.json"
+origin="${tmp}/pypi-null/content/files/source-origin.json"
 registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"
-provenance_present="$(jq -r 'if has("provenance_url") then "true" else "false" end' "${origin}")"
+provenance_present="$(jq -r 'if (has("provenance_url") and .provenance_url != null) then "true" else "false" end' "${origin}")"
+test "${registry}" = pypi.org && test "${provenance_present}" = false
+test ! -e "${tmp}/pypi-null/content/files/provenance-response.bin"
+
+# RHTL null is also not advertised, so it requires only rhtl-response.json.
+mkdir -p "${tmp}/rhtl-null/content/files"
+printf '{"source_registry":"rhtl","source":"https://catalog.example.invalid/example","provenance_url":null}\n' > "${tmp}/rhtl-null/content/files/source-origin.json"
+printf 'rhtl\n' > "${tmp}/rhtl-null/content/files/rhtl-response.json"
+origin="${tmp}/rhtl-null/content/files/source-origin.json"
+registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"
+provenance_present="$(jq -r 'if (has("provenance_url") and .provenance_url != null) then "true" else "false" end' "${origin}")"
 test "${registry}" = rhtl && test "${provenance_present}" = false
-test -f "${tmp}/rhtl-unavailable/content/files/rhtl-response.json"
-test ! -e "${tmp}/rhtl-unavailable/content/files/provenance-response.bin"
+test -f "${tmp}/rhtl-null/content/files/rhtl-response.json"
+test ! -e "${tmp}/rhtl-null/content/files/provenance-response.bin"
 
 # An advertised URL must fail when its response is absent, rather than downgrading to RHTL.
 mkdir -p "${tmp}/rhtl-advertised/content/files"
