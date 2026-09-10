@@ -10,18 +10,31 @@ spec:
     - {name: signerAuthorizationPath, type: string}
     - {name: artifactBoundaryPath, type: string}
     - {name: metadataPath, type: string}
-    - {name: cosignPublicKeyPath, type: string}
+    - {name: cosignPublicKeySecretName, type: string}
   workspaces: [{name: release}]
+  volumes:
+    - name: verifier-public-key
+      secret:
+        secretName: $(params.cosignPublicKeySecretName)
+        optional: false
+        items:
+          - key: cosign.pub
+            path: cosign.pub
+        defaultMode: 0400
   steps:
     - name: verify
       image: quay.io/konflux-ci/release-service-utils@sha256:5546fa78d3c88d7b6a2e8cff8902f7757f00541d0bbaf113b9f293133894afa3
       securityContext: {runAsUser: 1001}
       computeResources: {limits: {memory: 128Mi}, requests: {memory: 64Mi, cpu: 50m}}
+      volumeMounts:
+        - name: verifier-public-key
+          mountPath: /var/run/lightwell/verifier
+          readOnly: true
       command: [bash]
       args:
         - -ceu
         - |
-          root="$(workspaces.release.path)"; auth="${root}/$(params.signerAuthorizationPath)"; boundary="${root}/$(params.artifactBoundaryPath)"; key="$(params.cosignPublicKeyPath)"
+          root="$(workspaces.release.path)"; auth="${root}/$(params.signerAuthorizationPath)"; boundary="${root}/$(params.artifactBoundaryPath)"; key=/var/run/lightwell/verifier/cosign.pub
           test -s "${auth}" && test -s "${boundary}" && test -s "${key}"; cmp -s "${auth}" "${boundary}"
           jq -e '.schema == "lightwell.catalog-binding" and .version == 2 and (.provenance_dsse != null or .upstream_provenance_response != null) and ((.provenance_dsse == null) or (.upstream_provenance_response == null))' "${auth}" >/dev/null
           jq -r 'to_entries[] | select(.value|type == "object" and has("path") and has("sha256")) | [.key,.value.path,.value.sha256] | @tsv' "${auth}" | while IFS=$'\t' read -r name path expected; do

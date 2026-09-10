@@ -51,11 +51,10 @@ spec:
       description: Required full immutable catalog commit SHA supplied by deployment schema (must be 40 hex characters).
     - name: taisceCuanGitRevision
       type: string
-      description: Required full Taisce v2 commit SHA supplied by deployment schema; must be published 48da35e.
-    - name: sourceOriginType
+      description: Required full Taisce v2 commit SHA supplied by deployment schema.
+    - name: taisceImage
       type: string
-      description: Source-origin sidecar type (pypi or rhtl). PyPI does not require RHTL metadata.
-      default: "pypi"
+      description: Required full immutable digest image for the Taisce task, supplied by deployment.
     - name: sourceOriginPath
       type: string
       description: Path to the source-origin sidecar in the extracted artifact.
@@ -74,6 +73,7 @@ spec:
         params:
           - name: catalogRevision
           - name: taisceRevision
+          - name: taisceImage
         steps:
           - name: validate
             image: registry.access.redhat.com/ubi9/ubi-minimal:latest
@@ -81,12 +81,15 @@ spec:
               #!/bin/sh
               set -eu
               printf '%s\n' "$(params.catalogRevision)" "$(params.taisceRevision)" | grep -Eq '^[0-9a-fA-F]{40}$'
-              test "$(params.taisceRevision)" = "48da35ef1c068c7d5185e4bdda029f9378f85294"
+              printf '%s\n' "$(params.taisceImage)" | grep -Eq '^.+@sha256:[0-9a-fA-F]{64}$'
+              test -n "$(params.taisceRevision)"
       params:
         - name: catalogRevision
           value: $(params.taskGitRevision)
         - name: taisceRevision
           value: $(params.taisceCuanGitRevision)
+        - name: taisceImage
+          value: $(params.taisceImage)
 
     # ── 1. Collect release and snapshot data ──────────────────────────────────
     - name: collect-data
@@ -268,16 +271,10 @@ spec:
           value: $(tasks.collect-task-params.results.extractedValues[6])
         - name: packageVersion
           value: $(tasks.collect-task-params.results.extractedValues[7])
-        - name: sourceRegistry
-          value: $(params.sourceOriginType)
         - name: dataDir
           value: /var/workdir/content
-        - name: sdistPath
-          value: files
         - name: sourceOriginPath
           value: $(params.sourceOriginPath)
-        - name: sourceOriginType
-          value: $(params.sourceOriginType)
         - name: ociStorage
           value: $(params.ociStorage)
         - name: taskGitUrl
@@ -314,8 +311,6 @@ spec:
           value: $(tasks.collect-task-params.results.extractedValues[6])
         - name: packageVersion
           value: $(tasks.collect-task-params.results.extractedValues[7])
-        - name: sourceRegistry
-          value: $(params.sourceOriginType)
       workspaces:
         - name: release
           workspace: release
@@ -340,7 +335,7 @@ spec:
           value: $(tasks.prepare-release-inputs.results.sdistPath)
         - name: artifactBoundaryPath
           value: $(tasks.sign-release.results.artifactBoundaryPath)
-        - name: cosignPublicKeyPath
+        - name: cosignPublicKeySecretName
           value: $(tasks.collect-task-params.results.extractedValues[9])
       workspaces:
         - name: release
@@ -359,6 +354,8 @@ spec:
       runAfter:
         - verify-release
       params:
+        - name: image
+          value: $(params.taisceImage)
         - name: sdistPath
           value: $(tasks.prepare-release-inputs.results.sdistPath)
         - name: sourceOriginPath

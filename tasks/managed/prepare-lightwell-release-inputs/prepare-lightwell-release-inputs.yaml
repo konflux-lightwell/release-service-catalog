@@ -14,9 +14,6 @@ spec:
     - name: dataDir
       type: string
       default: "."
-    - name: sourceOriginType
-      type: string
-      default: pypi
     - name: sourceOriginPath
       type: string
       default: source-origin.json
@@ -25,9 +22,7 @@ spec:
       default: sdist-transformation.json
     - name: rhtlResponsePath
       type: string
-      default: rhtl-response.json
-    - name: sdistPath
-      type: string
+      default: provenance-response.bin
     - name: ociStorage
       type: string
     - name: taskGitUrl
@@ -37,8 +32,6 @@ spec:
     - name: packageName
       type: string
     - name: packageVersion
-      type: string
-    - name: sourceRegistry
       type: string
   workspaces:
     - name: release
@@ -85,21 +78,24 @@ spec:
           root="$(workspaces.release.path)"
           origin="${root}/$(params.sourceOriginPath)"
           transformation="${root}/$(params.transformationPath)"
-          archive="${root}/$(params.sdistPath)"
-          test -s "${origin}" && test -s "${transformation}" && test -s "${archive}"
-          source_sha="$(sha256sum "${origin}" | awk '{print $1}')"
+          test -s "${origin}" && test -s "${transformation}"
+          source_sha="$(jq -r '.acquired_artifact.sha256 // empty' "${origin}" | tr '[:upper:]' '[:lower:]')"
+          source_registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"
+          output_path="$(jq -r '.output.path // empty' "${transformation}")"
+          test "${source_sha}" && printf '%s' "${source_sha}" | grep -Eq '^[0-9a-f]{64}$'
+          test "${source_registry}" = pypi.org -o "${source_registry}" = rhtl
+          test "${output_path}" && case "${output_path}" in /*|*../*|../*) exit 1;; esac
+          archive="${root}/${output_path}"
+          test -s "${archive}"
           archive_sha="$(sha256sum "${archive}" | awk '{print $1}')"
-          jq -e --arg p "$(params.packageName)" --arg v "$(params.packageVersion)" --arg r "$(params.sourceRegistry)" \
-            '.package == $p and .version == $v and .source_registry == $r and (.verified_sha256|test("^[0-9a-fA-F]{64}$"))' "${origin}" >/dev/null
-          jq -e --arg input "$(jq -r '.input.sha256' "${transformation}")" --arg origin "$(jq -r '.source_origin.sha256' "${transformation}")" --arg output "${archive_sha}" \
-            '.schema == "lightwell.sdist-transformation" and .input.sha256 == $input and .source_origin.sha256 == $origin and .output.sha256 == $output and $input == (.source_origin.sha256)' "${transformation}" >/dev/null
-          test "${source_sha}" = "$(jq -r '.verified_sha256' "${origin}" | tr '[:upper:]' '[:lower:]')"
-          test "$(jq -r '.source_origin.sha256' "${transformation}" | tr '[:upper:]' '[:lower:]')" = "${source_sha}"
-          test "$(jq -r '.output.sha256' "${transformation}" | tr '[:upper:]' '[:lower:]')" = "${archive_sha}"
-          if [ "$(params.sourceOriginType)" = rhtl ]; then
+          jq -e --arg p "$(params.packageName)" --arg v "$(params.packageVersion)" \
+            '.package == $p and .version == $v and (.acquired_artifact.sha256|test("^[0-9a-fA-F]{64}$"))' "${origin}" >/dev/null
+          jq -e --arg input "${source_sha}" --arg output "${archive_sha}" \
+            '.schema == "lightwell.sdist-transformation" and .input.sha256 == $input and .source_origin.sha256 == $input and .output.sha256 == $output' "${transformation}" >/dev/null
+          if [ "${source_registry}" = rhtl ]; then
             test -s "${root}/$(params.rhtlResponsePath)"
           fi
-          printf '%s' "$(params.sdistPath)" > "$(results.sdistPath.path)"
+          printf '%s' "${output_path}" > "$(results.sdistPath.path)"
           printf '%s' "$(params.sourceOriginPath)" > "$(results.sourceOriginPath.path)"
           printf '%s' "$(params.transformationPath)" > "$(results.transformationPath.path)"
           printf '%s' "$(params.rhtlResponsePath)" > "$(results.rhtlResponsePath.path)"

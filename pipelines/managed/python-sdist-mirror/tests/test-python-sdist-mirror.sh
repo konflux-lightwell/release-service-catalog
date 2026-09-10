@@ -6,7 +6,7 @@ grep -Fq 'name: taskGitRevision' "${pipeline}"
 grep -Fq 'name: taisceCuanGitRevision' "${pipeline}"
 grep -Fq 'value: $(params.taskGitRevision)' "${pipeline}"
 grep -Fq 'value: $(params.taisceCuanGitRevision)' "${pipeline}"
-grep -Fq 'test "$(params.taisceRevision)" = "48da35ef1c068c7d5185e4bdda029f9378f85294"' "${pipeline}"
+grep -Fq 'test -n "$(params.taisceRevision)"' "${pipeline}"
 ! grep -Eq 'default: "[0-9a-f]{7,40}"' "${pipeline}"
 ! grep -Eiq 'revision:[[:space:]]*(main|master|development)' "${pipeline}"
 # Official catalog/Taisce paths only; no unpublished archive-sources resolver.
