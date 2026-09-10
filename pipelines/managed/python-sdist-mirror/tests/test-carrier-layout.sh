@@ -9,6 +9,9 @@ grep -Fq 'cp --preserve=all -- "${src}" "${dst}"' "${task}"
 grep -Fq 'cmp -s -- "${src}" "${dst}"' "${task}"
 grep -Fq 'test ! -e "${dst}"' "${task}"
 grep -Fq 'safe_path "${rel}"' "${task}"
+grep -Fq 'test ! -L "${src}"' "${task}"
+grep -Fq 'test -z "$(find "${files}" -type l -print -quit)"' "${task}"
+grep -Fq 'GIT_TERMINAL_PROMPT' "${task}"
 grep -Fq 'name: materialize-lightwell-carrier' "${pipeline}"
 grep -Fq -- '- materialize-lightwell-carrier' "${pipeline}"
 # Exercise the path contract and byte-for-byte copy independently of Tekton.
@@ -21,6 +24,8 @@ printf 'archive' > "${tmp}/release/content/files/dist/pkg.tar.gz"
 root="${tmp}/release"; files="${root}/content/files"; rel='dist/pkg.tar.gz'; src="${files}/${rel}"; dst="${root}/${rel}"
 mkdir -p "$(dirname "${dst}")"; test ! -e "${dst}"; cp -p "${src}" "${dst}"; cmp -s "${src}" "${dst}"
 ! (rel='../escape'; case "${rel}" in /*|*../*|../*|*//*|'') exit 0;; esac; exit 1)
+! (rel='.'; case "${rel}" in ''|'.'|/*|*../*|../*|*//* ) exit 0;; esac; exit 1)
+! (src="${tmp}/release/content/files/link"; ln -s dist/pkg.tar.gz "${src}"; test -z "$(find "${files}" -type l -print -quit)")
 # JSON null is Taisce's exact no-advertisement shape. PyPI stays response-free.
 mkdir -p "${tmp}/pypi-null/content/files"
 printf '{"source_registry":"pypi.org","source":"https://pypi.org/project/example/","provenance_url":null}\n' > "${tmp}/pypi-null/content/files/source-origin.json"
@@ -46,17 +51,34 @@ mkdir -p "${tmp}/rhtl-advertised/content/files"
 printf '{"source_registry":"rhtl","provenance_url":"https://example.invalid/provenance"}\n' > "${tmp}/rhtl-advertised/content/files/source-origin.json"
 origin="${tmp}/rhtl-advertised/content/files/source-origin.json"
 provenance_url="$(jq -r '.provenance_url // empty' "${origin}")"
-! test -f "${tmp}/rhtl-advertised/content/files/provenance-response.bin"
-! (printf '%s' "${provenance_url}" | grep -Eq '^https?://([^/?#[:space:]]+@)?(\[[^][[:space:]]+\]|[^:/?#[[:space:]]]+)(:[0-9]+)?([/?#][^[:space:]]*)?$' \
-  && test -f "${tmp}/rhtl-advertised/content/files/provenance-response.bin")
 
 # Hostless, empty, non-string, whitespace-containing, and malformed URLs are invalid advertisements.
-for invalid_url in 'https:///missing-host' '' '   ' 'https://example.invalid/a b' 'https://?query' 'https://#fragment' 'ftp://example.invalid' 'https://:443/path'; do
-  ! printf '%s' "${invalid_url}" | grep -Eq '^https?://([^/?#[:space:]]+@)?(\[[^][[:space:]]+\]|[^:/?#[[:space:]]]+)(:[0-9]+)?([/?#][^[:space:]]*)?$'
+valid_provenance_url() {
+  local url="$1" authority hostport host port suffix
+  case "${url}" in http://*|https://*) ;; *) return 1 ;; esac
+  case "${url}" in ''|*[[:space:]]*) return 1 ;; esac
+  authority="${url#*://}"; authority="${authority%%[/?#]*}"
+  test -n "${authority}" || return 1
+  hostport="${authority##*@}"; test -n "${hostport}" || return 1
+  case "${hostport}" in
+    \[*\]) host="${hostport#\[}"; host="${host%\]}"; test -n "${host}" || return 1 ;;
+    \[*\]:*)
+      host="${hostport%%\]*}"; host="${host#\[}"; suffix="${hostport#*\]}"; port="${suffix#:}"
+      test "${suffix#*:}" != "${suffix}" && test -n "${port}" || return 1
+      case "${port}" in *[!0-9]*) return 1 ;; esac ;;
+    *:*) host="${hostport%:*}"; port="${hostport##*:}"; test -n "${host}" && test -n "${port}" || return 1
+      case "${port}" in *[!0-9]*) return 1 ;; esac ;;
+    *) host="${hostport}" ;;
+  esac
+  test -n "${host}"
+}
+! test -f "${tmp}/rhtl-advertised/content/files/provenance-response.bin"
+! (valid_provenance_url "${provenance_url}" && test -f "${tmp}/rhtl-advertised/content/files/provenance-response.bin")
+for invalid_url in 'https:///missing-host' '' '   ' 'https://example.invalid/a b' 'https://?query' 'https://#fragment' 'ftp://example.invalid' 'https://:443/path' 123; do
+  ! valid_provenance_url "${invalid_url}"
 done
-! printf '%s' '123' | grep -Eq '^https?://([^/?#[:space:]]+@)?(\[[^][[:space:]]+\]|[^:/?#[[:space:]]]+)(:[0-9]+)?([/?#][^[:space:]]*)?$'
 for valid_url in 'http://example.invalid' 'https://example.invalid/path?query#fragment' 'https://user@example.invalid:8443/path'; do
-  printf '%s' "${valid_url}" | grep -Eq '^https?://([^/?#[:space:]]+@)?(\[[^][[:space:]]+\]|[^:/?#[[:space:]]]+)(:[0-9]+)?([/?#][^[:space:]]*)?$'
+  valid_provenance_url "${valid_url}"
 done
 
 printf 'carrier layout tests passed\n'

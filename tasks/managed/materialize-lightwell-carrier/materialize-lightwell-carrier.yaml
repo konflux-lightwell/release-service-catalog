@@ -42,6 +42,8 @@ spec:
         value: 1d
       - name: ORAS_OPTIONS
         value: ""
+      - name: GIT_TERMINAL_PROMPT
+        value: "0"
   steps:
     - name: use-trusted-artifact
       ref:
@@ -69,11 +71,14 @@ spec:
         - |
           root="$(workspaces.release.path)"
           files="${root}/content/files"
-          safe_path() { case "$1" in /*|*../*|../*|*//*|'') return 1;; esac; }
+          test ! -L "${files}"
+          safe_path() { case "$1" in ''|'.'|/*|*../*|../*|*//* ) return 1;; esac; }
+          test -z "$(find "${files}" -type l -print -quit)"
+          test -z "$(find "${root}" -path "${files}" -prune -o -type l -print -quit)"
           copy_one() {
             local rel="$1" src="${files}/$1" dst="${root}/$1"
             safe_path "${rel}"
-            test -f "${src}" && test ! -e "${dst}"
+            test ! -L "${src}" && test -f "${src}" && test ! -e "${dst}" && test ! -L "${dst}"
             mkdir -p "$(dirname "${dst}")"
             cp --preserve=all -- "${src}" "${dst}"
             cmp -s -- "${src}" "${dst}"
@@ -92,10 +97,36 @@ spec:
           provenance_present="$(jq -r 'if (has("provenance_url") and .provenance_url != null) then "true" else "false" end' "${origin}")"
           provenance_url="$(jq -r '.provenance_url // empty' "${origin}")"
           valid_provenance_url() {
-            case "$1" in
-              *[[:space:]]*) return 1 ;;
+            local url="$1" authority hostport host port suffix
+            case "${url}" in
+              http://*|https://*) ;;
+              *) return 1 ;;
             esac
-            printf '%s' "$1" | grep -Eq '^https?://([^/?#[:space:]]+@)?(\[[^][[:space:]]+\]|[^:/?#[[:space:]]]+)(:[0-9]+)?([/?#][^[:space:]]*)?$'
+            case "${url}" in
+              ''|*[[:space:]]*) return 1 ;;
+            esac
+            authority="${url#*://}"; authority="${authority%%[/?#]*}"
+            test -n "${authority}" || return 1
+            hostport="${authority##*@}"
+            test -n "${hostport}" || return 1
+            case "${hostport}" in
+              \[*\])
+                host="${hostport#\[}"; host="${host%\]}"; test -n "${host}" || return 1
+                ;;
+              \[*\]:*)
+                host="${hostport%%\]*}"; host="${host#\[}"; test -n "${host}" || return 1
+                suffix="${hostport#*\]}"; port="${suffix#:}"
+                test "${suffix#*:}" != "${suffix}" && test -n "${port}" || return 1
+                case "${port}" in *[!0-9]*) return 1;; esac
+                ;;
+              *:*)
+                host="${hostport%:*}"; port="${hostport##*:}"
+                test -n "${host}" && test -n "${port}" || return 1
+                case "${port}" in *[!0-9]*) return 1;; esac
+                ;;
+              *) host="${hostport}" ;;
+            esac
+            test -n "${host}"
           }
           case "${registry}" in
             pypi.org)

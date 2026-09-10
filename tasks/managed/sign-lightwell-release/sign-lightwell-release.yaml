@@ -29,6 +29,9 @@ spec:
   stepTemplate:
     securityContext: {runAsUser: 1001}
     volumeMounts: [{name: production-signing-key, mountPath: /var/run/lightwell/signing, readOnly: true}]
+    env:
+      - name: GIT_TERMINAL_PROMPT
+        value: "0"
   steps:
     - name: sign
       image: quay.io/konflux-ci/release-service-utils@sha256:5546fa78d3c88d7b6a2e8cff8902f7757f00541d0bbaf113b9f293133894afa3
@@ -37,16 +40,25 @@ spec:
       args:
         - -ceu
         - |
-          root="$(workspaces.release.path)"; mkdir -p "${root}/.lightwell"
+          root="$(workspaces.release.path)"
+          test ! -L "${root}"
+          test -z "$(find "${root}" -type l -print -quit)"
+          test ! -L "${root}/.lightwell"
+          mkdir -p "${root}/.lightwell"
+          test ! -L "${root}/.lightwell"
+          reject_symlink() { test ! -L "$1"; }
           provenance_rel="$(params.provenanceResponsePath)"
-          safe_path() { case "$1" in /*|*../*|../*|*//*|'') return 1;; esac; }
+          safe_path() { case "$1" in ''|'.'|/*|*../*|../*|*//* ) return 1;; esac; }
           origin_rel="$(params.sourceOriginPath)"; transform_rel="$(params.transformationPath)"; archive_rel="$(params.sdistPath)"; response_rel="$(params.rhtlResponsePath)"
           safe_path "${origin_rel}" && safe_path "${transform_rel}" && safe_path "${archive_rel}" && safe_path "${response_rel}"
           origin="${root}/${origin_rel}"; transform="${root}/${transform_rel}"; archive="${root}/${archive_rel}"
-          test -s "${origin}" && test -s "${transform}" && test -s "${archive}"
+          test ! -L "${origin}" && test -s "${origin}"
+          test ! -L "${transform}" && test -s "${transform}"
+          test ! -L "${archive}" && test -s "${archive}"
           key=/var/run/lightwell/signing/cosign.key
-          test -f "${key}" && test -s "${key}"
+          test ! -L "${key}" && test -f "${key}" && test -s "${key}"
           test "$(find /var/run/lightwell/signing -maxdepth 1 -type f -print | wc -l)" -eq 1
+          test -z "$(find "${root}/.lightwell" -type l -print -quit)"
           cosign version 2>/dev/null | grep -Eq '(^|[[:space:]])v?$(params.cosignVersion)([.][0-9]+)?([[:space:]]|$)'
           upstream_sha="$(jq -r .acquired_artifact.sha256 "${origin}" | tr '[:upper:]' '[:lower:]')"; registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"; normalized_sha="$(sha256sum "${archive}" | awk '{print $1}')"
           jq -e --arg p "$(params.packageName)" --arg v "$(params.packageVersion)" --arg r "${registry}" ".package == \$p and .version == \$v and (.source_registry // .registry) == \$r" "${origin}" >/dev/null
@@ -60,12 +72,14 @@ spec:
           if [ "${registry}" = rhtl ]; then
             advertised="$(jq -r 'if (.provenance_url? // "") != "" then "true" else "false" end' "${origin}")"
             if [ "${advertised}" = true ]; then
-              raw="${root}/${provenance_rel}"; test -s "${raw}"; cp --preserve=all "${raw}" "${root}/provenance-response.bin"; cp --preserve=all "${raw}" "${root}/.lightwell/provenance-response.bin"
+              raw="${root}/${provenance_rel}"; reject_symlink "${raw}"; test -s "${raw}"
+              reject_symlink "${root}/provenance-response.bin"; reject_symlink "${root}/.lightwell/provenance-response.bin"
+              cp --preserve=all "${raw}" "${root}/provenance-response.bin"; cp --preserve=all "${raw}" "${root}/.lightwell/provenance-response.bin"
               response_sha="$(sha256sum "${root}/.lightwell/provenance-response.bin" | awk '{print $1}')"
               cmp -s "${root}/provenance-response.bin" "${root}/.lightwell/provenance-response.bin"
               jq --arg path ".lightwell/provenance-response.bin" --arg sha "${response_sha}" --arg url "$(jq -r '.provenance_url' "${origin}")" --argjson status "$(jq -c '.provenance_response_status' "${origin}")" '.upstream_provenance_response={path:$path,sha256:$sha,url:$url,status:$status}' "${root}/.lightwell/metadata.json" > "${root}/.lightwell/metadata.tmp"
             else
-              raw="${root}/${response_rel}"; test -s "${raw}"; cp --preserve=all "${raw}" "${root}/rhtl-response.json"
+              raw="${root}/${response_rel}"; reject_symlink "${raw}"; test -s "${raw}"; reject_symlink "${root}/rhtl-response.json"; cp --preserve=all "${raw}" "${root}/rhtl-response.json"
               response_sha="$(sha256sum "${root}/rhtl-response.json" | awk '{print $1}')"
               jq --arg path "rhtl-response.json" --arg sha "${response_sha}" --arg url "$(jq -r '.index_url' "${origin}")" --arg status unavailable --arg reason not-advertised '.upstream_provenance_unavailable={status:$status,reason:$reason,index_response:{path:$path,sha256:$sha,url:$url,status:200}}' "${root}/.lightwell/metadata.json" > "${root}/.lightwell/metadata.tmp"
             fi
