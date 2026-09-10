@@ -85,8 +85,29 @@ spec:
           safe_path "${output_path}"
           test -n "${output_path}"
           copy_one "${output_path}"
-          copy_one "$(params.rhtlResponsePath)"
-          copy_one "$(params.provenanceResponsePath)"
+          origin="${root}/$(params.sourceOriginPath)"
+          registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"
+          provenance_present="$(jq -r 'if has("provenance_url") then "true" else "false" end' "${origin}")"
+          provenance_url="$(jq -r '.provenance_url // empty' "${origin}")"
+          case "${registry}" in
+            pypi.org)
+              # PyPI carries neither response artifact, and any advertised field is invalid for this source.
+              test "${provenance_present}" = false
+              ;;
+            rhtl)
+              if [ "${provenance_present}" = true ]; then
+                # A present field is an advertisement: empty or malformed values must fail, never downgrade.
+                printf '%s' "${provenance_url}" | grep -Eq '^https?://[^[:space:]]+$'
+                copy_one "$(params.provenanceResponsePath)"
+              else
+                copy_one "$(params.rhtlResponsePath)"
+              fi
+              ;;
+            *)
+              printf 'unsupported source registry: %s\n' "${registry}" >&2
+              exit 1
+              ;;
+          esac
           test "$(find "${files}" -type f -name "$(basename "$(params.sourceOriginPath)")" -print -quit)" = "${files}/$(params.sourceOriginPath)"
           test -s "${root}/$(params.sourceOriginPath)"
           test -s "${root}/$(params.transformationPath)"

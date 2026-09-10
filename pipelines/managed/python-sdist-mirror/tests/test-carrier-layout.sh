@@ -21,4 +21,24 @@ printf 'archive' > "${tmp}/release/content/files/dist/pkg.tar.gz"
 root="${tmp}/release"; files="${root}/content/files"; rel='dist/pkg.tar.gz'; src="${files}/${rel}"; dst="${root}/${rel}"
 mkdir -p "$(dirname "${dst}")"; test ! -e "${dst}"; cp -p "${src}" "${dst}"; cmp -s "${src}" "${dst}"
 ! (rel='../escape'; case "${rel}" in /*|*../*|../*|*//*|'') exit 0;; esac; exit 1)
+# RHTL without an advertised provenance URL must not require provenance-response.bin.
+mkdir -p "${tmp}/rhtl-unavailable/content/files"
+printf '{"source_registry":"rhtl"}\n' > "${tmp}/rhtl-unavailable/content/files/source-origin.json"
+printf 'rhtl\n' > "${tmp}/rhtl-unavailable/content/files/rhtl-response.json"
+origin="${tmp}/rhtl-unavailable/content/files/source-origin.json"
+registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"
+provenance_present="$(jq -r 'if has("provenance_url") then "true" else "false" end' "${origin}")"
+test "${registry}" = rhtl && test "${provenance_present}" = false
+test -f "${tmp}/rhtl-unavailable/content/files/rhtl-response.json"
+test ! -e "${tmp}/rhtl-unavailable/content/files/provenance-response.bin"
+
+# An advertised URL must fail when its response is absent, rather than downgrading to RHTL.
+mkdir -p "${tmp}/rhtl-advertised/content/files"
+printf '{"source_registry":"rhtl","provenance_url":"https://example.invalid/provenance"}\n' > "${tmp}/rhtl-advertised/content/files/source-origin.json"
+origin="${tmp}/rhtl-advertised/content/files/source-origin.json"
+provenance_url="$(jq -r '.provenance_url // empty' "${origin}")"
+! test -f "${tmp}/rhtl-advertised/content/files/provenance-response.bin"
+! (printf '%s' "${provenance_url}" | grep -Eq '^https?://[^[:space:]]+$' \
+  && test -f "${tmp}/rhtl-advertised/content/files/provenance-response.bin")
+
 printf 'carrier layout tests passed\n'
