@@ -15,7 +15,6 @@ spec:
     - {name: provenanceResponsePath, type: string, default: provenance-response.bin}
     - {name: sdistPath, type: string}
     - {name: cosignSecretName, type: string}
-    - {name: cosignVersion, type: string, default: v3}
     - {name: packageName, type: string}
     - {name: packageVersion, type: string}
   workspaces: [{name: release}]
@@ -71,7 +70,8 @@ spec:
             *) printf 'signing key resolves outside the signing mount: %s\n' "${key_realpath}" >&2; exit 1 ;;
           esac
           test -z "$(find "${root}/.lightwell" -type l -print -quit)"
-          cosign version 2>/dev/null | grep -Eq '(^|[[:space:]])v?$(params.cosignVersion)([.][0-9]+)?([[:space:]]|$)'
+          # Cosign v3 is required; keep the version expression fixed so no parameter can inject regex syntax.
+          cosign version 2>/dev/null | grep -Eq '(^|[[:space:]])v?3([.][0-9]+)?([[:space:]]|$)'
           upstream_sha="$(jq -r .acquired_artifact.sha256 "${origin}" | tr '[:upper:]' '[:lower:]')"; registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"; normalized_sha="$(sha256sum "${archive}" | awk '{print $1}')"
           jq -e --arg p "$(params.packageName)" --arg v "$(params.packageVersion)" --arg r "${registry}" ".package == \$p and .version == \$v and (.source_registry // .registry) == \$r" "${origin}" >/dev/null
           source_origin_sha="$(sha256sum "${origin}" | awk '{print $1}')"
@@ -85,10 +85,30 @@ spec:
             advertised="$(jq -r 'if (.provenance_url? // "") != "" then "true" else "false" end' "${origin}")"
             if [ "${advertised}" = true ]; then
               raw="${root}/${provenance_rel}"; reject_symlink "${raw}"; test -s "${raw}"
-              reject_symlink "${root}/provenance-response.bin"; reject_symlink "${root}/.lightwell/provenance-response.bin"
-              cp --preserve=all "${raw}" "${root}/provenance-response.bin"; cp --preserve=all "${raw}" "${root}/.lightwell/provenance-response.bin"
-              response_sha="$(sha256sum "${root}/.lightwell/provenance-response.bin" | awk '{print $1}')"
-              cmp -s "${root}/provenance-response.bin" "${root}/.lightwell/provenance-response.bin"
+              # Hash before reading, copy through same-directory temporary files, and verify each read.
+              # A changed source or pre-existing/race-created destination is rejected; link is atomic and no-clobber.
+              response_sha="$(sha256sum "${raw}" | awk '{print $1}')"
+              copy_evidence() {
+                local source="$1" target="$2" tmp target_sha
+                reject_symlink "${source}"; test -s "${source}"
+                tmp="$(mktemp "${target}.tmp.XXXXXX")"
+                trap 'rm -f -- "${tmp}"' RETURN
+                cp --no-dereference --preserve=all "${source}" "${tmp}"
+                test ! -L "${tmp}"
+                test "$(sha256sum "${tmp}" | awk '{print $1}')" = "${response_sha}"
+                reject_symlink "${target}"; test ! -e "${target}"
+                # link(2) atomically installs without replacing a destination created by a racer.
+                ln -- "${tmp}" "${target}"
+                rm -f -- "${tmp}"
+                test ! -L "${target}" && test -s "${target}"
+                target_sha="$(sha256sum "${target}" | awk '{print $1}')"
+                test "${target_sha}" = "${response_sha}"
+                cmp -s "${target}" "${source}"
+                rm -f -- "${tmp}"
+                trap - RETURN
+              }
+              copy_evidence "${raw}" "${root}/provenance-response.bin"
+              copy_evidence "${raw}" "${root}/.lightwell/provenance-response.bin"
               jq --arg path ".lightwell/provenance-response.bin" --arg sha "${response_sha}" --arg url "$(jq -r '.provenance_url' "${origin}")" --argjson status "$(jq -c '.provenance_response_status' "${origin}")" '.upstream_provenance_response={path:$path,sha256:$sha,url:$url,status:$status}' "${root}/.lightwell/metadata.json" > "${root}/.lightwell/metadata.tmp"
             else
               raw="${root}/${response_rel}"; reject_symlink "${raw}"; test -s "${raw}"; reject_symlink "${root}/rhtl-response.json"; cp --preserve=all "${raw}" "${root}/rhtl-response.json"
