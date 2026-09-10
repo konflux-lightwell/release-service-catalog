@@ -14,6 +14,9 @@ spec:
     - {name: metadataPath, type: string}
     - {name: cosignPublicKeySecretName, type: string}
   workspaces: [{name: release}]
+  env:
+    - name: GIT_TERMINAL_PROMPT
+      value: "0"
   volumes:
     - name: verifier-public-key
       secret:
@@ -36,11 +39,12 @@ spec:
       args:
         - -ceu
         - |
+          set -euo pipefail
           root="$(workspaces.release.path)"; auth="${root}/$(params.signerAuthorizationPath)"; boundary="${root}/$(params.artifactBoundaryPath)"; key=/var/run/lightwell/verifier/cosign.pub
           test -s "${auth}" && test -s "${boundary}" && test -s "${key}"; cmp -s "${auth}" "${boundary}"
           jq -e '.schema == "lightwell.catalog-binding" and .version == 3 and ([has("provenance_dsse"),has("upstream_provenance_response"),has("upstream_provenance_unavailable")] | map(select(. == true)) | length == 1)' "${auth}" >/dev/null
           jq -r 'to_entries[] | select(.value|type == "object" and has("path") and has("sha256")) | [.key,.value.path,.value.sha256] | @tsv' "${auth}" | while IFS=$'\t' read -r name path expected; do
-            case "${path}" in /*|*../*|../*|*//*|'') exit 1;; esac; file="${root}/${path}"; test -f "${file}"; actual="$(sha256sum "${file}" | awk '{print $1}')"; test "${actual}" = "$(printf '%s' "${expected}" | tr '[:upper:]' '[:lower:]')" || { echo "binding digest mismatch: ${name}" >&2; exit 1; }
+            case "${path}" in /*|*../*|../*|*//*|'') exit 1;; esac; file="${root}/${path}"; test -f "${file}"; actual="$(sha256sum "${file}" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"; test "${actual}" = "$(printf '%s' "${expected}" | tr '[:upper:]' '[:lower:]')" || { echo "binding digest mismatch: ${name}" >&2; exit 1; }
           done
           cosign verify-blob-attestation --key "${key}" --type lightwell-metadata --signature "${root}/.lightwell/metadata.dsse.json" "${root}/.lightwell/metadata.json" >/dev/null
           if jq -e 'has("provenance_dsse")' "${auth}" >/dev/null; then

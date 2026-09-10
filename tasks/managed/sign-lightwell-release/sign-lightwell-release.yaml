@@ -39,6 +39,7 @@ spec:
       args:
         - -ceu
         - |
+          set -euo pipefail
           root="$(workspaces.release.path)"
           test ! -L "${root}"
           test -z "$(find "${root}" -type l -print -quit)"
@@ -129,5 +130,19 @@ spec:
             if [ "${advertised}" = true ]; then jq --arg p "provenance-response.bin" --arg s "$(sha256sum "${root}/provenance-response.bin" | awk '{print $1}')" --arg u "$(jq -r '.provenance_url' "${origin}")" --argjson st "$(jq -c '.provenance_response_status' "${origin}")" '. + {upstream_provenance_response:{path:$p,sha256:$s,url:$u,status:$st}}' "${binding}" > "${binding}.tmp"; else jq --arg p "rhtl-response.json" --arg s "$(sha256sum "${root}/rhtl-response.json" | awk '{print $1}')" --arg u "$(jq -r '.index_url' "${origin}")" '. + {upstream_provenance_unavailable:{status:"unavailable",reason:"not-advertised",index_response:{path:$p,sha256:$s,url:$u,status:200}}}' "${binding}" > "${binding}.tmp"; fi
             mv "${binding}.tmp" "${binding}"
           else jq --arg p ".lightwell/provenance.dsse.json" --arg s "$(sha256sum "${root}/.lightwell/provenance.dsse.json" | awk '{print $1}')" '. + {provenance_dsse:{path:$p,sha256:$s}}' "${binding}" > "${binding}.tmp"; mv "${binding}.tmp" "${binding}"; fi
-          cp "${binding}" "${root}/signer-authorization.json"; cp "${binding}" "${root}/artifact-boundary.json"
+          install_binding() {
+            local target="$1" tmp
+            reject_symlink "${target}"; test ! -e "${target}"
+            tmp="$(mktemp "${target}.tmp.XXXXXX")"
+            trap 'rm -f -- "${tmp}"' RETURN
+            cp --no-dereference --preserve=all "${binding}" "${tmp}"
+            test ! -L "${tmp}"; test "$(sha256sum "${tmp}" | awk '{print $1}')" = "$(sha256sum "${binding}" | awk '{print $1}')"
+            ln -- "${tmp}" "${target}"
+            rm -f -- "${tmp}"
+            test ! -L "${target}"; cmp -s "${target}" "${binding}"
+            trap - RETURN
+          }
+          install_binding "${root}/signer-authorization.json"
+          install_binding "${root}/artifact-boundary.json"
+          cmp -s "${root}/signer-authorization.json" "${root}/artifact-boundary.json"
           printf '%s' signer-authorization.json > "$(results.signerAuthorizationPath.path)"; printf '%s' artifact-boundary.json > "$(results.artifactBoundaryPath.path)"; printf '%s' .lightwell/metadata.json > "$(results.metadataPath.path)"
