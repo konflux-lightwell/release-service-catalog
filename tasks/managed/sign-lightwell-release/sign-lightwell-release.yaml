@@ -56,13 +56,14 @@ spec:
           if [ "${registry}" = rhtl ]; then
             advertised="$(jq -r 'if (.provenance_url? // "") != "" then "true" else "false" end' "${origin}")"
             if [ "${advertised}" = true ]; then
-              raw="${root}/${provenance_rel}"; test -s "${raw}"; cp --preserve=all "${raw}" "${root}/provenance-response.bin"
-              response_sha="$(sha256sum "${root}/provenance-response.bin" | awk '{print $1}')"
-              jq --arg path "provenance-response.bin" --arg sha "${response_sha}" --arg url "$(jq -r '.provenance_url' "${origin}")" --argjson status "$(jq -c '.provenance_response_status' "${origin}")" '.upstream_provenance_response={path:$path,sha256:$sha,url:$url,status:$status}' "${root}/.lightwell/metadata.json" > "${root}/.lightwell/metadata.tmp"
+              raw="${root}/${provenance_rel}"; test -s "${raw}"; cp --preserve=all "${raw}" "${root}/provenance-response.bin"; cp --preserve=all "${raw}" "${root}/.lightwell/provenance-response.bin"
+              response_sha="$(sha256sum "${root}/.lightwell/provenance-response.bin" | awk '{print $1}')"
+              cmp -s "${root}/provenance-response.bin" "${root}/.lightwell/provenance-response.bin"
+              jq --arg path ".lightwell/provenance-response.bin" --arg sha "${response_sha}" --arg url "$(jq -r '.provenance_url' "${origin}")" --argjson status "$(jq -c '.provenance_response_status' "${origin}")" '.upstream_provenance_response={path:$path,sha256:$sha,url:$url,status:$status}' "${root}/.lightwell/metadata.json" > "${root}/.lightwell/metadata.tmp"
             else
               raw="${root}/${response_rel}"; test -s "${raw}"; cp --preserve=all "${raw}" "${root}/rhtl-response.json"
               response_sha="$(sha256sum "${root}/rhtl-response.json" | awk '{print $1}')"
-              jq --arg path "rhtl-response.json" --arg sha "${response_sha}" --arg url "$(jq -r '.index_url' "${origin}")" --arg status unavailable --arg reason not-advertised '.upstream_provenance_unavailable={status:$status,reason:$reason,index_response:{path:$path,sha256:$sha,url:$url}}' "${root}/.lightwell/metadata.json" > "${root}/.lightwell/metadata.tmp"
+              jq --arg path "rhtl-response.json" --arg sha "${response_sha}" --arg url "$(jq -r '.index_url' "${origin}")" --arg status unavailable --arg reason not-advertised '.upstream_provenance_unavailable={status:$status,reason:$reason,index_response:{path:$path,sha256:$sha,url:$url,status:200}}' "${root}/.lightwell/metadata.json" > "${root}/.lightwell/metadata.tmp"
             fi
             mv "${root}/.lightwell/metadata.tmp" "${root}/.lightwell/metadata.json"
           else
@@ -75,7 +76,7 @@ spec:
           jq -n --arg so "${origin_rel}" --arg ss "$(sha256sum "${origin}" | awk '{print $1}')" --arg tr "${transform_rel}" --arg ts "$(sha256sum "${transform}" | awk '{print $1}')" --arg ar "${archive_rel}" --arg as "${normalized_sha}" --arg md "${md}" --arg ms "$(sha256sum "${root}/${md}" | awk '{print $1}')" --arg mds "${mds}" --arg mdsd "$(sha256sum "${root}/${mds}" | awk '{print $1}')" \
             '{schema:"lightwell.catalog-binding",version:3,source_origin:{path:$so,sha256:$ss},transformation:{path:$tr,sha256:$ts},normalized_archive:{path:$ar,sha256:$as},metadata:{path:$md,sha256:$ms},metadata_dsse:{path:$mds,sha256:$mdsd}}' > "${binding}"
           if [ "${registry}" = rhtl ]; then
-            if [ "${advertised}" = true ]; then jq --arg p "provenance-response.bin" --arg s "$(sha256sum "${root}/provenance-response.bin" | awk '{print $1}')" --arg u "$(jq -r '.provenance_url' "${origin}")" --argjson st "$(jq -c '.provenance_response_status' "${origin}")" '. + {upstream_provenance_response:{path:$p,sha256:$s,url:$u,status:$st}}' "${binding}" > "${binding}.tmp"; else jq --arg p "rhtl-response.json" --arg s "$(sha256sum "${root}/rhtl-response.json" | awk '{print $1}')" --arg u "$(jq -r '.index_url' "${origin}")" '. + {upstream_provenance_unavailable:{status:"unavailable",reason:"not-advertised",index_response:{path:$p,sha256:$s,url:$u}}}' "${binding}" > "${binding}.tmp"; fi
+            if [ "${advertised}" = true ]; then jq --arg p ".lightwell/provenance-response.bin" --arg s "$(sha256sum "${root}/.lightwell/provenance-response.bin" | awk '{print $1}')" --arg u "$(jq -r '.provenance_url' "${origin}")" --argjson st "$(jq -c '.provenance_response_status' "${origin}")" '. + {upstream_provenance_response:{path:$p,sha256:$s,url:$u,status:$st}}' "${binding}" > "${binding}.tmp"; else jq --arg p "rhtl-response.json" --arg s "$(sha256sum "${root}/rhtl-response.json" | awk '{print $1}')" --arg u "$(jq -r '.index_url' "${origin}")" '. + {upstream_provenance_unavailable:{status:"unavailable",reason:"not-advertised",index_response:{path:$p,sha256:$s,url:$u,status:200}}}' "${binding}" > "${binding}.tmp"; fi
             mv "${binding}.tmp" "${binding}"
           else jq --arg p ".lightwell/provenance.dsse.json" --arg s "$(sha256sum "${root}/.lightwell/provenance.dsse.json" | awk '{print $1}')" '. + {provenance_dsse:{path:$p,sha256:$s}}' "${binding}" > "${binding}.tmp"; mv "${binding}.tmp" "${binding}"; fi
           cp "${binding}" "${root}/signer-authorization.json"; cp "${binding}" "${root}/artifact-boundary.json"

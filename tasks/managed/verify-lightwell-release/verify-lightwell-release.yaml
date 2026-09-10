@@ -44,5 +44,5 @@ spec:
           if jq -e 'has("provenance_dsse")' "${auth}" >/dev/null; then
             cosign verify-blob-attestation --key "${key}" --signature "${root}/.lightwell/provenance.dsse.json" "${root}/.lightwell/provenance.json" >/dev/null
           else
-            test ! -e "${root}/.lightwell/provenance.dsse.json"; cmp -s "${root}/provenance-response.bin" "${root}/.lightwell/provenance-response.bin"
+            test ! -e "${root}/.lightwell/provenance.dsse.json"; test -s "${root}/.lightwell/provenance-response.bin"; cmp -s "${root}/provenance-response.bin" "${root}/.lightwell/provenance-response.bin"
           fi
