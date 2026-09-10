@@ -22,6 +22,9 @@ spec:
       default: sdist-transformation.json
     - name: rhtlResponsePath
       type: string
+      default: rhtl-response.json
+    - name: provenanceResponsePath
+      type: string
       default: provenance-response.bin
     - name: ociStorage
       type: string
@@ -40,6 +43,7 @@ spec:
     - name: sourceOriginPath
     - name: transformationPath
     - name: rhtlResponsePath
+    - name: provenanceResponsePath
   stepTemplate:
     securityContext:
       runAsUser: 1001
@@ -103,3 +107,4 @@ spec:
           printf '%s' "$(params.sourceOriginPath)" > "$(results.sourceOriginPath.path)"
           printf '%s' "$(params.transformationPath)" > "$(results.transformationPath.path)"
           printf '%s' "$(params.rhtlResponsePath)" > "$(results.rhtlResponsePath.path)"
+          printf '%s' "$(params.provenanceResponsePath)" > "$(results.provenanceResponsePath.path)"
