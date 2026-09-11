@@ -1,0 +1,130 @@
+---
+# yamllint disable rule:line-length
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: prepare-lightwell-release-inputs
+spec:
+  description: >-
+    Materializes and fail-closed validates the OCI carrier: source-origin.json, sdist-transformation.json,
+    optional opaque rhtl-response.json, and the normalized sdist. All identities and independent digests are checked.
+  params:
+    - name: sourceDataArtifact
+      type: string
+    - name: dataDir
+      type: string
+      default: "."
+    - name: sourceOriginPath
+      type: string
+      default: source-origin.json
+    - name: transformationPath
+      type: string
+      default: sdist-transformation.json
+    - name: rhtlResponsePath
+      type: string
+      default: rhtl-response.json
+    - name: provenanceResponsePath
+      type: string
+      default: provenance-response.bin
+    - name: ociStorage
+      type: string
+    - name: taskGitUrl
+      type: string
+    - name: taskGitRevision
+      type: string
+    - name: packageName
+      type: string
+    - name: packageVersion
+      type: string
+  workspaces:
+    - name: release
+  results:
+    - name: sdistPath
+    - name: sourceOriginPath
+    - name: transformationPath
+    - name: rhtlResponsePath
+    - name: provenanceResponsePath
+  stepTemplate:
+    securityContext:
+      runAsUser: 1001
+    env:
+      - name: HOME
+        value: /tekton/home
+      - name: IMAGE_EXPIRES_AFTER
+        value: 1d
+      - name: ORAS_OPTIONS
+        value: ""
+  steps:
+    - name: validate-inputs
+      image: quay.io/konflux-ci/release-service-utils@sha256:5546fa78d3c88d7b6a2e8cff8902f7757f00541d0bbaf113b9f293133894afa3
+      computeResources:
+        limits: {memory: 128Mi}
+        requests: {memory: 128Mi, cpu: 10m}
+      command: [bash]
+      args:
+        - -ceu
+        - |
+          root="$(workspaces.release.path)"
+          safe_path() { case "$1" in /*|*../*|../*|*//*|'') return 1;; esac; }
+          origin_rel="$(params.sourceOriginPath)"; transformation_rel="$(params.transformationPath)"; response_rel="$(params.rhtlResponsePath)"; provenance_rel="$(params.provenanceResponsePath)"
+          safe_path "${origin_rel}" && safe_path "${transformation_rel}" && safe_path "${response_rel}" && safe_path "${provenance_rel}"
+          response="${root}/${response_rel}"
+          provenance_response="${root}/${provenance_rel}"
+          origin="${root}/${origin_rel}"
+          transformation="${root}/${transformation_rel}"
+          test -s "${origin}" && test -s "${transformation}"
+          source_sha="$(jq -r '.acquired_artifact.sha256 // empty' "${origin}" | tr '[:upper:]' '[:lower:]')"
+          source_registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"
+          provenance_present="$(jq -r 'if (has("provenance_url") and .provenance_url != null) then "true" else "false" end' "${origin}")"
+          provenance_url="$(jq -r '.provenance_url // empty' "${origin}")"
+          valid_provenance_url() {
+            local url="$1" authority hostport host port suffix
+            case "${url}" in http://*|https://*) ;; *) return 1 ;; esac
+            case "${url}" in ''|*[[:space:]]*) return 1 ;; esac
+            authority="${url#*://}"; authority="${authority%%[/?#]*}"
+            test -n "${authority}" || return 1
+            hostport="${authority##*@}"; test -n "${hostport}" || return 1
+            case "${hostport}" in
+              \[*\]) host="${hostport#\[}"; host="${host%\]}"; test -n "${host}" || return 1 ;;
+              \[*\]:*)
+                host="${hostport%%\]*}"; host="${host#\[}"; suffix="${hostport#*\]}"; port="${suffix#:}"
+                test "${suffix#*:}" != "${suffix}" && test -n "${port}" || return 1
+                case "${port}" in *[!0-9]*) return 1 ;; esac ;;
+              *:*) host="${hostport%:*}"; port="${hostport##*:}"; test -n "${host}" && test -n "${port}" || return 1
+                case "${port}" in *[!0-9]*) return 1 ;; esac ;;
+              *) host="${hostport}" ;;
+            esac
+            test -n "${host}"
+          }
+          if [ "${source_registry}" = rhtl ]; then
+            if [ "${provenance_present}" = true ]; then
+              valid_provenance_url "${provenance_url}"
+              test -s "${provenance_response}"
+            else
+              test -s "${response}"
+              expected_response_sha="$(jq -r '.rhtl_response_sha256 // empty' "${origin}" | tr '[:upper:]' '[:lower:]')"
+              test "${expected_response_sha}" && printf '%s' "${expected_response_sha}" | grep -Eq '^[0-9a-f]{64}$'
+              actual_response_sha="$(sha256sum "${response}" | awk '{print $1}')"
+              test "${actual_response_sha}" = "${expected_response_sha}" || {
+                printf 'rhtl-response.json digest does not match source-origin rhtl_response_sha256\n' >&2
+                exit 1
+              }
+            fi
+          fi
+          output_path="$(jq -r '.output.path // empty' "${transformation}")"
+          test "${source_sha}" && printf '%s' "${source_sha}" | grep -Eq '^[0-9a-f]{64}$'
+          test "${source_registry}" = pypi.org -o "${source_registry}" = rhtl
+          test "${output_path}" && case "${output_path}" in /*|*../*|../*) exit 1;; esac
+          archive="${root}/${output_path}"
+          test -s "${archive}"
+          archive_sha="$(sha256sum "${archive}" | awk '{print $1}')"
+          jq -e --arg p "$(params.packageName)" --arg v "$(params.packageVersion)" \
+            '.package == $p and .version == $v and (.acquired_artifact.sha256|test("^[0-9a-fA-F]{64}$"))' "${origin}" >/dev/null
+          source_origin_sha="$(sha256sum "${origin}" | awk '{print $1}')"
+          jq -e --arg input "${source_sha}" --arg origin "${source_origin_sha}" --arg output "${archive_sha}" \
+            '.schema == "lightwell.sdist-transformation" and .input.sha256 == $input and .source_origin.sha256 == $origin and .output.sha256 == $output' "${transformation}" >/dev/null
+          printf '%s' "${output_path}" > "$(results.sdistPath.path)"
+          printf '%s' "$(params.sourceOriginPath)" > "$(results.sourceOriginPath.path)"
+          printf '%s' "$(params.transformationPath)" > "$(results.transformationPath.path)"
+          printf '%s' "$(params.rhtlResponsePath)" > "$(results.rhtlResponsePath.path)"
+          printf '%s' "$(params.provenanceResponsePath)" > "$(results.provenanceResponsePath.path)"

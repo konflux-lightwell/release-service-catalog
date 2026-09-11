@@ -1,0 +1,148 @@
+---
+# yamllint disable rule:line-length
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: sign-lightwell-release
+spec:
+  description: >-
+    Creates signed final metadata and a Taisce v3 catalog binding for PyPI or RHTL evidence. Cosign retains its
+    default Rekor transparency-log upload policy; the task requires network access to the configured Sigstore services.
+  params:
+    - {name: sourceOriginPath, type: string}
+    - {name: transformationPath, type: string}
+    - {name: rhtlResponsePath, type: string}
+    - {name: provenanceResponsePath, type: string, default: provenance-response.bin}
+    - {name: sdistPath, type: string}
+    - {name: cosignSecretName, type: string}
+    - {name: packageName, type: string}
+    - {name: packageVersion, type: string}
+  workspaces: [{name: release}]
+  results:
+    - {name: signerAuthorizationPath}
+    - {name: artifactBoundaryPath}
+    - {name: metadataPath}
+  volumes:
+    - name: production-signing-key
+      secret: {secretName: $(params.cosignSecretName), optional: false, defaultMode: 0400}
+  stepTemplate:
+    securityContext: {runAsUser: 1001}
+    volumeMounts: [{name: production-signing-key, mountPath: /var/run/lightwell/signing, readOnly: true}]
+    env:
+      - name: GIT_TERMINAL_PROMPT
+        value: "0"
+  steps:
+    - name: sign
+      image: quay.io/konflux-ci/release-service-utils@sha256:5546fa78d3c88d7b6a2e8cff8902f7757f00541d0bbaf113b9f293133894afa3
+      computeResources: {limits: {memory: 256Mi}, requests: {memory: 128Mi, cpu: 100m}}
+      command: [bash]
+      args:
+        - -ceu
+        - |
+          set -euo pipefail
+          root="$(workspaces.release.path)"
+          test ! -L "${root}"
+          test -z "$(find "${root}" -type l -print -quit)"
+          test ! -L "${root}/.lightwell"
+          mkdir -p "${root}/.lightwell"
+          test ! -L "${root}/.lightwell"
+          reject_symlink() { test ! -L "$1"; }
+          provenance_rel="$(params.provenanceResponsePath)"
+          safe_path() { case "$1" in ''|'.'|/*|*../*|../*|*//* ) return 1;; esac; }
+          origin_rel="$(params.sourceOriginPath)"; transform_rel="$(params.transformationPath)"; archive_rel="$(params.sdistPath)"; response_rel="$(params.rhtlResponsePath)"
+          safe_path "${origin_rel}" && safe_path "${transform_rel}" && safe_path "${archive_rel}" && safe_path "${response_rel}" && safe_path "${provenance_rel}"
+          origin="${root}/${origin_rel}"; transform="${root}/${transform_rel}"; archive="${root}/${archive_rel}"
+          test ! -L "${origin}" && test -s "${origin}"
+          test ! -L "${transform}" && test -s "${transform}"
+          test ! -L "${archive}" && test -s "${archive}"
+          signing_mount=/var/run/lightwell/signing
+          key="${signing_mount}/cosign.key"
+          test -e "${key}" && test -f "${key}" && test -s "${key}"
+          # Kubernetes Secret projections expose keys through the current ..data directory. Require the
+          # deterministic key name and permit only that projection symlink; never discover a key via find.
+          if [ -L "${key}" ]; then
+            test "$(readlink -- "${key}")" = "..data/cosign.key"
+          fi
+          test -z "$(find "${signing_mount}" -maxdepth 1 -type f ! -name cosign.key -print -quit)"
+          signing_mount_realpath="$(realpath -e -- "${signing_mount}")"
+          key_realpath="$(realpath -e -- "${key}")"
+          case "${key_realpath}" in
+            "${signing_mount_realpath}/"*) ;;
+            *) printf 'signing key resolves outside the signing mount: %s\n' "${key_realpath}" >&2; exit 1 ;;
+          esac
+          test -z "$(find "${root}/.lightwell" -type l -print -quit)"
+          # Cosign v3 is required; keep the version expression fixed so no parameter can inject regex syntax.
+          cosign version 2>/dev/null | grep -Eq '(^|[[:space:]])v?3([.][0-9]+)?([[:space:]]|$)'
+          upstream_sha="$(jq -r .acquired_artifact.sha256 "${origin}" | tr '[:upper:]' '[:lower:]')"; registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"; normalized_sha="$(sha256sum "${archive}" | awk '{print $1}')"
+          jq -e --arg p "$(params.packageName)" --arg v "$(params.packageVersion)" --arg r "${registry}" ".package == \$p and .version == \$v and (.source_registry // .registry) == \$r" "${origin}" >/dev/null
+          source_origin_sha="$(sha256sum "${origin}" | awk '{print $1}')"
+          test "${source_origin_sha}" = "$(jq -r .source_origin.sha256 "${transform}" | tr '[:upper:]' '[:lower:]')"
+          test "${normalized_sha}" = "$(jq -r .output.sha256 "${transform}" | tr '[:upper:]' '[:lower:]')"
+          origin_rel="$(params.sourceOriginPath)"; transform_rel="$(params.transformationPath)"; archive_rel="$(params.sdistPath)"
+          upstream_url="$(jq -r '.url // .source_url // ""' "${origin}")"; transformation_sha="$(sha256sum "${transform}" | awk '{print $1}')"
+          jq -n --arg p "$(params.packageName)" --arg v "$(params.packageVersion)" --arg r "${registry}" --arg url "${upstream_url}" --arg us "${upstream_sha}" --arg up "${origin_rel}" --arg ns "${normalized_sha}" --arg np "${archive_rel}" --arg tp "${transform_rel}" --arg ts "${transformation_sha}" \
+            '{schema:"lightwell.metadata.v1",package:$p,version:$v,upstream:{registry:$r,url:$url,sha256:$us,path:$up},normalized_artifact:{path:$np,sha256:$ns},transformation:{path:$tp,sha256:$ts}}' > "${root}/.lightwell/metadata.json"
+          if [ "${registry}" = rhtl ]; then
+            advertised="$(jq -r 'if (.provenance_url? // "") != "" then "true" else "false" end' "${origin}")"
+            if [ "${advertised}" = true ]; then
+              raw="${root}/${provenance_rel}"; reject_symlink "${raw}"; test -s "${raw}"
+              # Hash before reading, copy through same-directory temporary files, and verify each read.
+              # A changed source or pre-existing/race-created destination is rejected; link is atomic and no-clobber.
+              response_sha="$(sha256sum "${raw}" | awk '{print $1}')"
+              copy_evidence() {
+                local source="$1" target="$2" tmp target_sha
+                reject_symlink "${source}"; test -s "${source}"
+                tmp="$(mktemp "${target}.tmp.XXXXXX")"
+                trap 'rm -f -- "${tmp}"' RETURN
+                cp --no-dereference --preserve=all "${source}" "${tmp}"
+                test ! -L "${tmp}"
+                test "$(sha256sum "${tmp}" | awk '{print $1}')" = "${response_sha}"
+                reject_symlink "${target}"; test ! -e "${target}"
+                # link(2) atomically installs without replacing a destination created by a racer.
+                ln -- "${tmp}" "${target}"
+                rm -f -- "${tmp}"
+                test ! -L "${target}" && test -s "${target}"
+                target_sha="$(sha256sum "${target}" | awk '{print $1}')"
+                test "${target_sha}" = "${response_sha}"
+                cmp -s "${target}" "${source}"
+                rm -f -- "${tmp}"
+                trap - RETURN
+              }
+              copy_evidence "${raw}" "${root}/provenance-response.bin"
+              copy_evidence "${raw}" "${root}/.lightwell/provenance-response.bin"
+              jq --arg path ".lightwell/provenance-response.bin" --arg sha "${response_sha}" --arg url "$(jq -r '.provenance_url' "${origin}")" --argjson status "$(jq -c '.provenance_response_status' "${origin}")" '.upstream_provenance_response={path:$path,sha256:$sha,url:$url,status:$status}' "${root}/.lightwell/metadata.json" > "${root}/.lightwell/metadata.tmp"
+            else
+              raw="${root}/${response_rel}"; reject_symlink "${raw}"; test -s "${raw}"; reject_symlink "${root}/rhtl-response.json"; cp --preserve=all "${raw}" "${root}/rhtl-response.json"
+              response_sha="$(sha256sum "${root}/rhtl-response.json" | awk '{print $1}')"
+              jq --arg path "rhtl-response.json" --arg sha "${response_sha}" --arg url "$(jq -r '.index_url' "${origin}")" --arg status unavailable --arg reason not-advertised '.upstream_provenance_unavailable={status:$status,reason:$reason,index_response:{path:$path,sha256:$sha,url:$url,status:200}}' "${root}/.lightwell/metadata.json" > "${root}/.lightwell/metadata.tmp"
+            fi
+            mv "${root}/.lightwell/metadata.tmp" "${root}/.lightwell/metadata.json"
+          else
+            jq -e '.package and .version' "${root}/.lightwell/metadata.json" >/dev/null
+            jq -n --arg p "$(params.packageName)" --arg v "$(params.packageVersion)" --arg sha "${normalized_sha}" '{_type:"https://in-toto.io/Statement/v1",subject:[{name:$p,digest:{sha256:$sha}}],predicateType:"https://slsa.dev/provenance/v1",predicate:{buildDefinition:{buildType:"https://lightwell.dev/source-ingestion/v1",externalParameters:{version:$v}},runDetails:{builder:{id:"lightwell/catalog"}}}}' > "${root}/.lightwell/provenance.json"
+            cosign attest-blob --key "${key}" --type https://slsa.dev/provenance/v1 --tlog-upload=true --output-file "${root}/.lightwell/provenance.dsse.json" "${root}/.lightwell/provenance.json"
+          fi
+          cosign attest-blob --key "${key}" --type lightwell-metadata --tlog-upload=true --output-file "${root}/.lightwell/metadata.dsse.json" "${root}/.lightwell/metadata.json"
+          md=".lightwell/metadata.json"; mds=".lightwell/metadata.dsse.json"; binding="${root}/.lightwell/catalog-binding.json"
+          jq -n --arg so "${origin_rel}" --arg ss "$(sha256sum "${origin}" | awk '{print $1}')" --arg tr "${transform_rel}" --arg ts "$(sha256sum "${transform}" | awk '{print $1}')" --arg ar "${archive_rel}" --arg as "${normalized_sha}" --arg md "${md}" --arg ms "$(sha256sum "${root}/${md}" | awk '{print $1}')" --arg mds "${mds}" --arg mdsd "$(sha256sum "${root}/${mds}" | awk '{print $1}')" \
+            '{schema:"lightwell.catalog-binding",version:3,source_origin:{path:$so,sha256:$ss},transformation:{path:$tr,sha256:$ts},normalized_archive:{path:$ar,sha256:$as},metadata:{path:$md,sha256:$ms},metadata_dsse:{path:$mds,sha256:$mdsd}}' > "${binding}"
+          if [ "${registry}" = rhtl ]; then
+            if [ "${advertised}" = true ]; then jq --arg p "provenance-response.bin" --arg s "$(sha256sum "${root}/provenance-response.bin" | awk '{print $1}')" --arg u "$(jq -r '.provenance_url' "${origin}")" --argjson st "$(jq -c '.provenance_response_status' "${origin}")" '. + {upstream_provenance_response:{path:$p,sha256:$s,url:$u,status:$st}}' "${binding}" > "${binding}.tmp"; else jq --arg p "rhtl-response.json" --arg s "$(sha256sum "${root}/rhtl-response.json" | awk '{print $1}')" --arg u "$(jq -r '.index_url' "${origin}")" '. + {upstream_provenance_unavailable:{status:"unavailable",reason:"not-advertised",index_response:{path:$p,sha256:$s,url:$u,status:200}}}' "${binding}" > "${binding}.tmp"; fi
+            mv "${binding}.tmp" "${binding}"
+          else jq --arg p ".lightwell/provenance.dsse.json" --arg s "$(sha256sum "${root}/.lightwell/provenance.dsse.json" | awk '{print $1}')" '. + {provenance_dsse:{path:$p,sha256:$s}}' "${binding}" > "${binding}.tmp"; mv "${binding}.tmp" "${binding}"; fi
+          install_binding() {
+            local target="$1" tmp
+            reject_symlink "${target}"; test ! -e "${target}"
+            tmp="$(mktemp "${target}.tmp.XXXXXX")"
+            trap 'rm -f -- "${tmp}"' RETURN
+            cp --no-dereference --preserve=all "${binding}" "${tmp}"
+            test ! -L "${tmp}"; test "$(sha256sum "${tmp}" | awk '{print $1}')" = "$(sha256sum "${binding}" | awk '{print $1}')"
+            ln -- "${tmp}" "${target}"
+            rm -f -- "${tmp}"
+            test ! -L "${target}"; cmp -s "${target}" "${binding}"
+            trap - RETURN
+          }
+          install_binding "${root}/signer-authorization.json"
+          install_binding "${root}/artifact-boundary.json"
+          cmp -s "${root}/signer-authorization.json" "${root}/artifact-boundary.json"
+          printf '%s' signer-authorization.json > "$(results.signerAuthorizationPath.path)"; printf '%s' artifact-boundary.json > "$(results.artifactBoundaryPath.path)"; printf '%s' .lightwell/metadata.json > "$(results.metadataPath.path)"

@@ -1,0 +1,70 @@
+---
+# yamllint disable rule:line-length
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: verify-lightwell-release
+spec:
+  description: >-
+    Recomputes every Taisce v3 binding digest and verifies the actual Cosign blob attestations. Verification retains the
+    default Rekor transparency-log policy and requires network access to the configured Sigstore services.
+  params:
+    - {name: signerAuthorizationPath, type: string}
+    - {name: artifactBoundaryPath, type: string}
+    - {name: metadataPath, type: string}
+    - {name: cosignPublicKeySecretName, type: string}
+  workspaces: [{name: release}]
+  env:
+    - name: GIT_TERMINAL_PROMPT
+      value: "0"
+  volumes:
+    - name: verifier-public-key
+      secret:
+        secretName: $(params.cosignPublicKeySecretName)
+        optional: false
+        items:
+          - key: cosign.pub
+            path: cosign.pub
+        defaultMode: 0400
+  steps:
+    - name: verify
+      image: quay.io/konflux-ci/release-service-utils@sha256:5546fa78d3c88d7b6a2e8cff8902f7757f00541d0bbaf113b9f293133894afa3
+      securityContext: {runAsUser: 1001}
+      computeResources: {limits: {memory: 128Mi}, requests: {memory: 64Mi, cpu: 50m}}
+      volumeMounts:
+        - name: verifier-public-key
+          mountPath: /var/run/lightwell/verifier
+          readOnly: true
+      command: [bash]
+      args:
+        - -ceu
+        - |
+          set -euo pipefail
+          root="$(workspaces.release.path)"; auth="${root}/$(params.signerAuthorizationPath)"; boundary="${root}/$(params.artifactBoundaryPath)"; key=/var/run/lightwell/verifier/cosign.pub
+          test -s "${auth}" && test -s "${boundary}" && test -s "${key}"; cmp -s "${auth}" "${boundary}"
+          jq -e '.schema == "lightwell.catalog-binding" and .version == 3 and ([has("provenance_dsse"),has("upstream_provenance_response"),has("upstream_provenance_unavailable")] | map(select(. == true)) | length == 1)' "${auth}" >/dev/null
+          jq -r 'to_entries[] | select(.value|type == "object" and has("path") and has("sha256")) | [.key,.value.path,.value.sha256] | @tsv' "${auth}" | while IFS=$'\t' read -r name path expected; do
+            case "${path}" in /*|*../*|../*|*//*|'') exit 1;; esac; file="${root}/${path}"; test -f "${file}"; actual="$(sha256sum "${file}" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"; test "${actual}" = "$(printf '%s' "${expected}" | tr '[:upper:]' '[:lower:]')" || { echo "binding digest mismatch: ${name}" >&2; exit 1; }
+          done
+          cosign verify-blob-attestation --key "${key}" --type lightwell-metadata --signature "${root}/.lightwell/metadata.dsse.json" "${root}/.lightwell/metadata.json" >/dev/null
+          if jq -e 'has("provenance_dsse")' "${auth}" >/dev/null; then
+            # PyPI: provenance is represented only by the signed DSSE statement.
+            test ! -e "${root}/.lightwell/provenance-response.bin"
+            test ! -e "${root}/provenance-response.bin"
+            cosign verify-blob-attestation --key "${key}" --type https://slsa.dev/provenance/v1 --signature "${root}/.lightwell/provenance.dsse.json" "${root}/.lightwell/provenance.json" >/dev/null
+          elif jq -e 'has("upstream_provenance_response")' "${auth}" >/dev/null; then
+            # Advertised upstream provenance: require both immutable raw-response copies.
+            test ! -e "${root}/.lightwell/provenance.dsse.json"
+            test -s "${root}/provenance-response.bin"; test -s "${root}/.lightwell/provenance-response.bin"
+            cmp -s "${root}/provenance-response.bin" "${root}/.lightwell/provenance-response.bin"
+            test ! -e "${root}/rhtl-response.json"
+          else
+            # No upstream provenance: the binding must cover the RHTL index response.
+            test ! -e "${root}/.lightwell/provenance.dsse.json"
+            test ! -e "${root}/provenance-response.bin"
+            test -s "${root}/rhtl-response.json"
+            index_path="$(jq -r '.upstream_provenance_unavailable.index_response.path' "${auth}")"
+            index_expected="$(jq -r '.upstream_provenance_unavailable.index_response.sha256' "${auth}" | tr '[:upper:]' '[:lower:]')"
+            test "${index_path}" = rhtl-response.json
+            test "$(sha256sum "${root}/${index_path}" | awk '{print $1}')" = "${index_expected}"
+          fi

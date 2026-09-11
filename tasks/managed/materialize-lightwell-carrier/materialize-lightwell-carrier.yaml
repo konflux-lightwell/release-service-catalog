@@ -1,0 +1,196 @@
+---
+# yamllint disable rule:line-length
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: materialize-lightwell-carrier
+spec:
+  description: >-
+    Copies the immutable Lightwell carrier closure from the extracted Trusted Artifact files directory into the
+    release workspace. Paths are confined to the extracted carrier, destinations must not already exist, and every
+    copy is verified byte-for-byte before prepare or signing can consume it.
+  params:
+    - name: sourceDataArtifact
+      type: string
+    - name: taskGitUrl
+      type: string
+    - name: taskGitRevision
+      type: string
+    - name: ociStorage
+      type: string
+    - name: sourceOriginPath
+      type: string
+      default: source-origin.json
+    - name: transformationPath
+      type: string
+      default: sdist-transformation.json
+    - name: rhtlResponsePath
+      type: string
+      default: rhtl-response.json
+    - name: provenanceResponsePath
+      type: string
+      default: provenance-response.bin
+  workspaces:
+    - name: release
+  stepTemplate:
+    securityContext:
+      runAsUser: 1001
+    env:
+      - name: HOME
+        value: /tekton/home
+      - name: IMAGE_EXPIRES_AFTER
+        value: 1d
+      - name: ORAS_OPTIONS
+        value: ""
+      - name: GIT_TERMINAL_PROMPT
+        value: "0"
+  steps:
+    - name: use-trusted-artifact
+      ref:
+        resolver: git
+        params:
+          - name: url
+            value: $(params.taskGitUrl)
+          - name: revision
+            value: $(params.taskGitRevision)
+          - name: pathInRepo
+            value: stepactions/use-trusted-artifact/use-trusted-artifact.yaml
+      params:
+        - name: workDir
+          value: $(workspaces.release.path)
+        - name: sourceDataArtifact
+          value: $(params.sourceDataArtifact)
+    - name: materialize
+      image: quay.io/konflux-ci/release-service-utils@sha256:5546fa78d3c88d7b6a2e8cff8902f7757f00541d0bbaf113b9f293133894afa3
+      computeResources:
+        limits: {memory: 128Mi}
+        requests: {memory: 128Mi, cpu: 10m}
+      command: [bash]
+      args:
+        - -ceu
+        - |
+          root="$(workspaces.release.path)"
+          files="${root}/content/files"
+          test ! -L "${files}"
+          safe_path() { case "$1" in ''|'.'|/*|*../*|../*|*//* ) return 1;; esac; }
+          test -z "$(find "${files}" -type l -print -quit)"
+          test -z "$(find "${root}" -path "${files}" -prune -o -type l -print -quit)"
+          copy_one() {
+            local rel="$1" src="${files}/$1" dst="${root}/$1"
+            safe_path "${rel}"
+            test ! -L "${src}" && test -f "${src}" && test ! -e "${dst}" && test ! -L "${dst}"
+            mkdir -p "$(dirname "${dst}")"
+            # Open the source without following a symlink, copy that stable fd to a temporary file, and
+            # publish with link(2). link(2) is atomic and fails rather than replacing a concurrent destination.
+            python3 - "${src}" "${dst}" <<'PY'
+          import os
+          import shutil
+          import stat
+          import sys
+
+          src, dst = sys.argv[1:]
+          parent = os.path.dirname(dst)
+          fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
+          dir_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+          tmp = None
+          try:
+              source_stat = os.fstat(fd)
+              if not stat.S_ISREG(source_stat.st_mode):
+                  raise RuntimeError("carrier source is not a regular file")
+              tmp = os.path.join(parent, ".materialize.%d" % os.getpid())
+              flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+              tmp_fd = None
+              try:
+                  tmp_fd = os.open(tmp, flags, source_stat.st_mode & 0o777)
+                  with os.fdopen(os.dup(fd), "rb") as source, os.fdopen(os.dup(tmp_fd), "wb") as target:
+                      shutil.copyfileobj(source, target)
+                      target.flush()
+                      os.fsync(target.fileno())
+                  os.close(tmp_fd)
+                  tmp_fd = None
+                  os.link(tmp, dst)
+                  os.fsync(dir_fd)
+              except FileExistsError:
+                  raise RuntimeError("carrier destination collision: %s" % dst)
+              finally:
+                  if tmp_fd is not None:
+                      os.close(tmp_fd)
+                  if tmp is not None:
+                      try:
+                          os.unlink(tmp)
+                      except FileNotFoundError:
+                          pass
+                  os.fsync(dir_fd)
+          finally:
+              os.close(dir_fd)
+              os.close(fd)
+          PY
+            test ! -L "${src}" && test -f "${src}" && test ! -L "${dst}" && test -f "${dst}"
+            cmp -s -- "${src}" "${dst}"
+            test "$(sha256sum "${src}" | awk '{print $1}')" = "$(sha256sum "${dst}" | awk '{print $1}')"
+          }
+          copy_one "$(params.sourceOriginPath)"
+          copy_one "$(params.transformationPath)"
+          output_path="$(jq -r '.output.path // empty' "${root}/$(params.transformationPath)")"
+          safe_path "${output_path}"
+          test -n "${output_path}"
+          copy_one "${output_path}"
+          origin="${root}/$(params.sourceOriginPath)"
+          registry="$(jq -r '.source_registry // .registry // empty' "${origin}")"
+          # JSON null is the explicit no-advertisement value emitted by Taisce. Any other present value is
+          # an advertisement and must validate as a non-empty HTTP(S) URL; malformed values must never downgrade.
+          provenance_present="$(jq -r 'if (has("provenance_url") and .provenance_url != null) then "true" else "false" end' "${origin}")"
+          provenance_url="$(jq -r '.provenance_url // empty' "${origin}")"
+          valid_provenance_url() {
+            local url="$1" authority hostport host port suffix
+            case "${url}" in
+              http://*|https://*) ;;
+              *) return 1 ;;
+            esac
+            case "${url}" in
+              ''|*[[:space:]]*) return 1 ;;
+            esac
+            authority="${url#*://}"; authority="${authority%%[/?#]*}"
+            test -n "${authority}" || return 1
+            hostport="${authority##*@}"
+            test -n "${hostport}" || return 1
+            case "${hostport}" in
+              \[*\])
+                host="${hostport#\[}"; host="${host%\]}"; test -n "${host}" || return 1
+                ;;
+              \[*\]:*)
+                host="${hostport%%\]*}"; host="${host#\[}"; test -n "${host}" || return 1
+                suffix="${hostport#*\]}"; port="${suffix#:}"
+                test "${suffix#*:}" != "${suffix}" && test -n "${port}" || return 1
+                case "${port}" in *[!0-9]*) return 1;; esac
+                ;;
+              *:*)
+                host="${hostport%:*}"; port="${hostport##*:}"
+                test -n "${host}" && test -n "${port}" || return 1
+                case "${port}" in *[!0-9]*) return 1;; esac
+                ;;
+              *) host="${hostport}" ;;
+            esac
+            test -n "${host}"
+          }
+          case "${registry}" in
+            pypi.org)
+              # PyPI provenance is generated and verified as DSSE by the signer; carrier
+              # materialization must never consume a raw provenance response.
+              ;;
+            rhtl)
+              if [ "${provenance_present}" = true ]; then
+                valid_provenance_url "${provenance_url}"
+                copy_one "$(params.provenanceResponsePath)"
+              else
+                copy_one "$(params.rhtlResponsePath)"
+              fi
+              ;;
+            *)
+              printf 'unsupported source registry: %s\n' "${registry}" >&2
+              exit 1
+              ;;
+          esac
+          test "$(find "${files}" -type f -name "$(basename "$(params.sourceOriginPath)")" -print -quit)" = "${files}/$(params.sourceOriginPath)"
+          test -s "${root}/$(params.sourceOriginPath)"
+          test -s "${root}/$(params.transformationPath)"
