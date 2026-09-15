@@ -407,6 +407,8 @@ spec:
           value: $(tasks.collect-task-params.results.extractedValues[2])
         - name: DIRECT_SIGN
           value: "true"
+        - name: DIRECT_SIGN_VERBOSE
+          value: "true"
         - name: RADAS_UMB_HOST
           value: $(params.radas-umb-host)
         - name: REQUESTER_ID
