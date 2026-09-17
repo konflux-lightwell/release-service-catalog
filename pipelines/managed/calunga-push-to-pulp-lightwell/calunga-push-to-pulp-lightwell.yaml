@@ -62,6 +62,10 @@ spec:
       type: string
       description: Git revision for taisce-cuan tasks
       default: main
+    - name: osidbKeytabSecretName
+      type: string
+      description: The name of the secret containing the OSIDB Kerberos keytab
+      default: osidb-keytab-secret
   tasks:
     - name: collect-data
       taskRef:
@@ -130,7 +134,11 @@ spec:
               {"resultIndex": 8, "key": ".gitSecretName", "default": "lightwell-builds-git-auth"},
               {"resultIndex": 9, "key": ".gitForgeUrl", "default": "https://gitlab.cee.redhat.com"},
               {"resultIndex": 10, "key": ".committerName", "default": "taisce-cuan bot"},
-              {"resultIndex": 11, "key": ".committerEmail", "default": "lightwell@redhat.com"}
+              {"resultIndex": 11, "key": ".committerEmail", "default": "lightwell@redhat.com"},
+              {"resultIndex": 12, "key": ".osidb.apiUrl", "default": ""},
+              {"resultIndex": 13, "key": ".osidb.kerberosPrincipal", "default": ""},
+              {"resultIndex": 14, "key": ".osidb.kerberosKeytabPath", "default": ""},
+              {"resultIndex": 15, "key": ".pulp.osvRepository", "default": "osv/python"}
             ]
 
     - name: reduce-snapshot
@@ -252,6 +260,45 @@ spec:
       runAfter:
         - extract-py-artifacts
 
+    - name: generate-py-osv
+      when:
+        - input: $(params.signingSecretName)
+          operator: notin
+          values: [""]
+      taskRef:
+        resolver: "git"
+        params:
+          - name: url
+            value: $(params.taskGitUrl)
+          - name: revision
+            value: $(params.taskGitRevision)
+          - name: pathInRepo
+            value: tasks/managed/generate-py-osv/generate-py-osv.yaml
+      params:
+        - name: SNAPSHOT_PATH
+          value: $(tasks.collect-data.results.snapshotSpec)
+        - name: sourceDataArtifact
+          value: "$(tasks.rh-sign-python-wheels.results.sourceDataArtifact)"
+        - name: OSIDB_API_URL
+          value: $(tasks.collect-task-params.results.extractedValues[12])
+        - name: OSIDB_KERBEROS_PRINCIPAL
+          value: $(tasks.collect-task-params.results.extractedValues[13])
+        - name: OSIDB_KERBEROS_KEYTAB_PATH
+          value: $(tasks.collect-task-params.results.extractedValues[14])
+        - name: OSIDB_KEYTAB_SECRET_NAME
+          value: $(params.osidbKeytabSecretName)
+        - name: dataDir
+          value: /var/workdir/content
+        - name: ociStorage
+          value: $(params.ociStorage)
+        - name: taskGitUrl
+          value: $(params.taskGitUrl)
+        - name: taskGitRevision
+          value: $(params.taskGitRevision)
+      runAfter:
+        - rh-sign-python-wheels
+        - collect-task-params
+
     - name: push-py-pulp
       when:
         - input: $(params.signingSecretName)
@@ -278,7 +325,7 @@ spec:
         - name: SERVICE_ACCOUNT_SECRET_NAME
           value: $(tasks.collect-task-params.results.extractedValues[4])
         - name: sourceDataArtifact
-          value: "$(tasks.rh-sign-python-wheels.results.sourceDataArtifact)"
+          value: "$(tasks.generate-py-osv.results.sourceDataArtifact)"
         - name: dataDir
           value: /var/workdir/content
         - name: taskGitUrl
@@ -288,7 +335,44 @@ spec:
         - name: ociStorage
           value: $(params.ociStorage)
       runAfter:
-        - rh-sign-python-wheels
+        - generate-py-osv
+        - collect-task-params
+
+    - name: push-py-osv-pulp
+      when:
+        - input: $(params.signingSecretName)
+          operator: notin
+          values: [""]
+      taskRef:
+        resolver: "git"
+        params:
+          - name: url
+            value: $(params.taskGitUrl)
+          - name: revision
+            value: $(params.taskGitRevision)
+          - name: pathInRepo
+            value: tasks/managed/push-py-osv-pulp/push-py-osv-pulp.yaml
+      params:
+        - name: PULP_URL
+          value: $(tasks.collect-task-params.results.extractedValues[0])
+        - name: PULP_DOMAIN
+          value: $(tasks.collect-task-params.results.extractedValues[1])
+        - name: PULP_FILE_REPOSITORY
+          value: $(tasks.collect-task-params.results.extractedValues[15])
+        - name: SERVICE_ACCOUNT_SECRET_NAME
+          value: $(tasks.collect-task-params.results.extractedValues[4])
+        - name: sourceDataArtifact
+          value: "$(tasks.push-py-pulp.results.sourceDataArtifact)"
+        - name: dataDir
+          value: /var/workdir/content
+        - name: ociStorage
+          value: $(params.ociStorage)
+        - name: taskGitUrl
+          value: $(params.taskGitUrl)
+        - name: taskGitRevision
+          value: $(params.taskGitRevision)
+      runAfter:
+        - push-py-pulp
         - collect-task-params
 
     - name: mirror-source-to-lightwell-builds
