@@ -130,9 +130,11 @@ spec:
     - name: ignore-patterns
       description: |
         Comma-separated regex patterns to exclude files from signing.
-        Example: ".*-sources\\.jar$,.*-javadoc\\.jar$" excludes source and javadoc JARs
+        Example: ".*-sources\\.jar$,.*-javadoc\\.jar$" excludes source and javadoc JARs.
+        The default excludes checksum and signature files (.md5/.sha1/.sha256/.asc/.sigstore.json),
+        which do not need signing; excluded files are still published, only skipped during signing.
       type: string
-      default: ""
+      default: ".*\\.md5$,.*\\.sha1$,.*\\.sha256$,.*\\.asc$,.*\\.sigstore\\.json$"
 
     # Publish parameters
     - name: publish-insecure
