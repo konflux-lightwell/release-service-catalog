@@ -26,7 +26,7 @@ spec:
     - name: concurrentLimit
       type: string
       description: The maximum number of signing requests to run in parallel
-      default: 8
+      default: 24
     - name: pipelineRunUid
       type: string
       description: >-
@@ -170,7 +170,7 @@ spec:
           value: $(params.sourceDataArtifact)
 
     - name: sign-image
-      image: quay.io/konflux-ci/release-service-utils@sha256:19b51294e8faf4db356d1c5ba45dd575fece40fcde081152fe4842d3e1bbb232
+      image: quay.io/konflux-ci/release-service-utils@sha256:b6b83bedcbdc135550e8977c38d25a6c4b807f77b7b1ae460b0910e94c8f599e
       computeResources:
         limits:
           memory: 4Gi

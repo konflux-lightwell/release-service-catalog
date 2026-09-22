@@ -75,7 +75,8 @@ spec:
         readOnly: true
   steps:
     - name: check-opt-in
-      image: quay.io/konflux-ci/release-service-utils@sha256:5c7004fc5dc9328c656a829fccfbd3151e0aefb89a24c2480d519f7908865211
+      image: >-
+        quay.io/konflux-ci/release-service-utils@sha256:891c755bcf6ad93dfe62c83b4653b1a2ec90f02826b0e06396a8f58360ec15d3
       computeResources:
         limits:
           memory: 512Mi
