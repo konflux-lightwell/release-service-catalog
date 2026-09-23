@@ -4,8 +4,12 @@ Release pipeline for Lightwell Java artifacts (slan-cuan).
 
 This pipeline orchestrates the complete release workflow for Java artifacts built by
 PNC (Project Newcastle). All per-release configuration (image reference, signing key,
-Trustify URLs, Pulp target) is derived from the Snapshot and ReleasePlanAdmission data
-via collect-data, so no pipeline parameters need to be supplied at invocation time.
+signing requester identity, Trustify URLs, Pulp target) is derived from the Snapshot and
+ReleasePlanAdmission data via collect-data, so no pipeline parameters need to be supplied
+at invocation time.
+
+Required RPA/RP data:
+- `.sign.requester`: Requester identity for signing operations (passed to the sign task)
 
 ## Parameters
 
@@ -31,7 +35,6 @@ via collect-data, so no pipeline parameters need to be supplied at invocation ti
 | force-extract                   | Overwrite existing output directory if it exists. Without this flag, the extract task refuses to overwrite existing directories                                                                                                                                                                                                        | Yes      | false                                                            |
 | discover-attachments            | Unique artifact-types to discover attachments from the oras artifact.                                                                                                                                                                                                                                                                  | Yes      | application/vnd.redhat.gav-index-build+json                      |
 | radas-umb-host                  | RADAS UMB host                                                                                                                                                                                                                                                                                                                         | Yes      | umb.api.redhat.com                                               |
-| requester-id                    | Requester identity for signing operations. Used for audit trails and RADAS access control. Typically an email address                                                                                                                                                                                                                  | Yes      | slan-cuan@org.com                                                |
 | zip-root-path                   | Root of the Maven repository tree inside the ZIP archive submitted to RADAS. The ZIP file structure is <ZIP_ROOT_PATH>/<maven-layout>                                                                                                                                                                                                  | Yes      | repository                                                       |
 | product-key                     | Product key for metadata tagging. Identifies the product in RADAS records and signing logs                                                                                                                                                                                                                                             | Yes      | slan-cuan                                                        |
 | ignore-patterns                 | Comma-separated regex patterns to exclude files from signing. Example: ".*-sources\\.jar$,.*-javadoc\\.jar$" excludes source and javadoc JARs. The default excludes checksum and signature files (.md5/.sha1/.sha256/.asc/.sigstore.json), which do not need signing; excluded files are still published, only skipped during signing. | Yes      | .*\.md5$,.*\.sha1$,.*\.sha256$,.*\.asc$,.*\.sigstore\.json$      |
