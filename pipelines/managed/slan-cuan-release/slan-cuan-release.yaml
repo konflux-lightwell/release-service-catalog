@@ -16,12 +16,9 @@ spec:
 
     This pipeline orchestrates the complete release workflow for Java artifacts built by
     PNC (Project Newcastle). All per-release configuration (image reference, signing key,
-    signing requester identity, Trustify URLs, Pulp target) is derived from the Snapshot and
-    ReleasePlanAdmission data via collect-data, so no pipeline parameters need to be supplied
-    at invocation time.
-
-    Required RPA/RP data:
-    - `.sign.requester`: Requester identity for signing operations (passed to the sign task)
+    Trustify URLs, Pulp target) is derived from the Snapshot and ReleasePlanAdmission data
+    via collect-data, and the signing requester identity is extracted from Release attribution
+    via extract-requester-from-release, so no pipeline parameters need to be supplied at invocation time.
   params:
     # Release service standard params (passed by release-service controller)
     - name: release
@@ -257,8 +254,7 @@ spec:
               {"resultIndex": 8, "key": ".osidb.apiUrl"},
               {"resultIndex": 9, "key": ".osidb.kerberosPrincipal"},
               {"resultIndex": 10, "key": ".osidb.kerberosKeytabPath"},
-              {"resultIndex": 11, "key": ".pulp.customHeaders", "default": ""},
-              {"resultIndex": 12, "key": ".sign.requester"}
+              {"resultIndex": 11, "key": ".pulp.customHeaders", "default": ""}
             ]
         - name: ociStorage
           value: $(params.ociStorage)
@@ -319,6 +315,33 @@ spec:
           value: $(params.caTrustConfigMapName)
         - name: caTrustConfigMapKey
           value: $(params.caTrustConfigMapKey)
+
+    - name: extract-requester-from-release
+      taskRef:
+        resolver: "git"
+        params:
+          - name: url
+            value: $(params.catalogGitUrl)
+          - name: revision
+            value: $(params.catalogGitRevision)
+          - name: pathInRepo
+            value: hub/kubernetes-actions/kubernetes-actions.yaml
+      params:
+        - name: image
+          value: "quay.io/hacbs-release/cloud-builders-kubectl@sha256:8ab94be8b2b4f3d117f02d868b39540fddd225447abf4014f7ba4765cb39f753"
+        - name: script
+          value: |
+            set -x
+
+            NAMESPACE=$(echo $(params.release) | cut -d '/' -f 1)
+            NAME=$(echo $(params.release) | cut -d '/' -f 2)
+
+            AUTHOR=$(kubectl get release ${NAME} -n ${NAMESPACE} \
+            -o=jsonpath='{.status.attribution.author}' | tee $(results.output-result.path))
+
+            if [[ ${AUTHOR} == "" ]] ; then exit 1 ; fi
+      runAfter:
+        - collect-data
 
     - name: extract
       taskRef:
@@ -400,6 +423,7 @@ spec:
         - extract
         - collect-task-params
         - verify-conforma
+        - extract-requester-from-release
       params:
         - name: REGISTRY_AUTH_SECRET
           value: $(params.registry-auth-secret)
@@ -414,7 +438,7 @@ spec:
         - name: RADAS_UMB_HOST
           value: $(params.radas-umb-host)
         - name: REQUESTER_ID
-          value: $(tasks.collect-task-params.results.extractedValues[12])
+          value: $(tasks.extract-requester-from-release.results.output-result)
         - name: ZIP_ROOT_PATH
           value: $(params.zip-root-path)
         - name: PRODUCT_KEY
