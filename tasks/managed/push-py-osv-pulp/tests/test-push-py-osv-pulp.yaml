@@ -17,6 +17,9 @@ spec:
     - name: trustedArtifactsDebug
       type: string
       default: ""
+    - name: pulpDebug
+      type: string
+      default: "false"
     - name: dataDir
       type: string
   tasks:
@@ -64,6 +67,10 @@ spec:
       params:
         - name: PULP_URL
           value: https://test.packages.redhat.com
+        - name: PULP_API_ROOT
+          value: /api/
+        - name: PULP_DEBUG
+          value: $(params.pulpDebug)
         - name: PULP_DOMAIN
           value: test-domain
         - name: PULP_FILE_REPOSITORY

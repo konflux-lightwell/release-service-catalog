@@ -124,7 +124,8 @@ spec:
               {"resultIndex": 6, "key": ".osidb.apiUrl", "default": ""},
               {"resultIndex": 7, "key": ".osidb.kerberosPrincipal", "default": ""},
               {"resultIndex": 8, "key": ".osidb.kerberosKeytabPath", "default": ""},
-              {"resultIndex": 9, "key": ".pulp.osvRepository", "default": "osv/python"}
+              {"resultIndex": 9, "key": ".pulp.osvRepository", "default": "osv/python"},
+              {"resultIndex": 10, "key": ".pulp.debug", "default": "false"}
             ]
 
     - name: reduce-snapshot
@@ -349,6 +350,10 @@ spec:
           value: $(tasks.collect-task-params.results.extractedValues[9])
         - name: SERVICE_ACCOUNT_SECRET_NAME
           value: $(tasks.collect-task-params.results.extractedValues[4])
+        - name: PULP_API_ROOT
+          value: $(tasks.collect-task-params.results.extractedValues[2])
+        - name: PULP_DEBUG
+          value: $(tasks.collect-task-params.results.extractedValues[10])
         - name: sourceDataArtifact
           value: "$(tasks.push-py-pulp.results.sourceDataArtifact)"
         - name: dataDir

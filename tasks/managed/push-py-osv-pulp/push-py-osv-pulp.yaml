@@ -30,6 +30,10 @@ spec:
     - name: PULP_FILE_REPOSITORY
       type: string
       description: The Pulp file repository to publish OSV security metadata to
+    - name: PULP_DEBUG
+      type: string
+      description: Log a safe HTTP status/content-type probe of the Pulp API specification endpoint
+      default: "false"
     - name: securityMetadataDir
       type: string
       description: The relative path within dataDir where OSV security metadata files are located
@@ -87,6 +91,8 @@ spec:
         value: $(params.PULP_DOMAIN)
       - name: PULP_FILE_REPOSITORY
         value: $(params.PULP_FILE_REPOSITORY)
+      - name: PULP_DEBUG
+        value: $(params.PULP_DEBUG)
       - name: SECURITY_METADATA_DIR
         value: $(params.dataDir)/$(params.securityMetadataDir)
       - name: IMAGE_EXPIRES_AFTER
@@ -176,6 +182,23 @@ spec:
         EOF
         chmod 600 "${CONFIG_FILE}"
         unset PULP_USERNAME PULP_PASSWORD
+        if [ "${PULP_DEBUG,,}" = "true" ]; then
+          # Probe only the API document endpoint: do not include credentials or response content.
+          # This distinguishes a bad API root / HTML redirect from an authenticated Pulp error.
+          API_ROOT="${PULP_API_ROOT%/}/"
+          API_DOC_URL="${PULP_URL%/}/${API_ROOT#/}api/v3/docs/api.json"
+          DOMAIN_API_DOC_URL="${PULP_URL%/}/${API_ROOT#/}${PULP_DOMAIN}/api/v3/docs/api.json"
+          API_STATUS_URL="${PULP_URL%/}/${API_ROOT#/}api/v3/status/"
+          DOMAIN_STATUS_URL="${PULP_URL%/}/${API_ROOT#/}${PULP_DOMAIN}/api/v3/status/"
+          set +x
+          echo "Pulp API diagnostics (no credentials or response body):"
+          for url in "${API_DOC_URL}" "${DOMAIN_API_DOC_URL}" "${API_STATUS_URL}" "${DOMAIN_STATUS_URL}"; do
+            echo "  URL: ${url}"
+            curl --silent --show-error --location --max-redirs 5 --output /dev/null --write-out \
+              "  HTTP status: %{http_code}; content type: %{content_type}; final URL: %{url_effective}\\n" \
+              --max-time 20 "${url}" || echo "  API document probe failed (curl exit $?)"
+          done
+        fi
         set -x
 
         UPLOADED=0

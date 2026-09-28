@@ -16,6 +16,7 @@ files go to a separate Pulp file repository.
 | PULP_API_ROOT               | The API root path of the Pulp server                                                                  | Yes      | /api/                        |
 | PULP_DOMAIN                 | The domain to use for Pulp operations                                                                 | No       | -                            |
 | PULP_FILE_REPOSITORY        | The Pulp file repository to publish OSV security metadata to                                          | No       | -                            |
+| PULP_DEBUG                  | Log a safe HTTP status/content-type probe of the Pulp API specification endpoint                      | Yes      | false                        |
 | securityMetadataDir         | The relative path within dataDir where OSV security metadata files are located                        | Yes      | security_metadata            |
 | sourceDataArtifact          | Trusted Artifact containing the generated OSV security metadata files                                 | No       | -                            |
 | dataDir                     | The location where data will be stored                                                                | Yes      | /var/workdir                 |
