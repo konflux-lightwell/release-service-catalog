@@ -474,6 +474,9 @@ spec:
             value: tekton/tasks/slan-cuan-generate-security-metadata.yaml
       runAfter:
         - extract
+        - collect-task-params
+        - verify-conforma
+        - extract-requester-from-release
       params:
         - name: INDEX_BASEDIR
           value: "$(tasks.extract.results.ATTACHMENT_DIR)"
