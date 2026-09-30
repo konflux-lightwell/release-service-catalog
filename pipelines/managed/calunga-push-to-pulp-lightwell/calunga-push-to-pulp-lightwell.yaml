@@ -58,10 +58,6 @@ spec:
       type: string
       description: Path used for working directories
       default: /var/workdir/content
-    - name: osidbKeytabSecretName
-      type: string
-      description: The name of the secret containing the OSIDB Kerberos keytab
-      default: osidb-keytab-secret
   tasks:
     - name: collect-data
       taskRef:
@@ -121,16 +117,17 @@ spec:
         - name: keysToExtract
           value: |
             [
-              {"resultIndex": 0, "key": ".pulp.baseUrl", "default": "https://packages.redhat.com"},
-              {"resultIndex": 1, "key": ".pulp.domain", "default": "public-trusted-libraries"},
-              {"resultIndex": 2, "key": ".pulp.apiRoot", "default": "/api/"},
-              {"resultIndex": 3, "key": ".pulp.repository", "default": "main"},
-              {"resultIndex": 4, "key": ".pulp.secretName", "default": "rhtl-pulp-credentials-secret"},
-              {"resultIndex": 5, "key": ".pulp.distributionBasePath", "default": ""},
-              {"resultIndex": 6, "key": ".osidb.apiUrl", "default": ""},
-              {"resultIndex": 7, "key": ".osidb.kerberosPrincipal", "default": ""},
-              {"resultIndex": 8, "key": ".osidb.kerberosKeytabPath", "default": ""},
-              {"resultIndex": 9, "key": ".pulp.osvRepository", "default": "osv/python"}
+              {"resultIndex": 0, "key": ".pulp.baseUrl"},
+              {"resultIndex": 1, "key": ".pulp.domain"},
+              {"resultIndex": 2, "key": ".pulp.apiRoot"},
+              {"resultIndex": 3, "key": ".pulp.repository"},
+              {"resultIndex": 4, "key": ".pulp.secretName"},
+              {"resultIndex": 5, "key": ".pulp.distributionBasePath"},
+              {"resultIndex": 6, "key": ".osidb.apiUrl"},
+              {"resultIndex": 7, "key": ".osidb.kerberosPrincipal"},
+              {"resultIndex": 8, "key": ".osidb.kerberosKeytabPath"},
+              {"resultIndex": 9, "key": ".pulp.osvRepository"},
+              {"resultIndex": 10, "key": ".osidb.keytabSecretName"}
             ]
 
     - name: reduce-snapshot
@@ -280,7 +277,7 @@ spec:
         - name: OSIDB_KERBEROS_KEYTAB_PATH
           value: $(tasks.collect-task-params.results.extractedValues[8])
         - name: OSIDB_KEYTAB_SECRET_NAME
-          value: $(params.osidbKeytabSecretName)
+          value: $(tasks.collect-task-params.results.extractedValues[10])
         - name: dataDir
           value: /var/workdir/content
         - name: ociStorage
