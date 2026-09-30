@@ -84,7 +84,7 @@ spec:
     - name: taskGitRevision
       type: string
       description: The revision in the taskGitUrl repo to be used
-      default: main
+      default: feat/optimize-trusted-artifact-handoff
 
     # Extract parameters
     - name: registry-auth-secret
@@ -348,9 +348,9 @@ spec:
         resolver: "git"
         params:
           - name: url
-            value: https://github.com/konflux-lightwell/slan-cuan.git
+            value: $(params.taskGitUrl)
           - name: revision
-            value: main
+            value: $(params.taskGitRevision)
           - name: pathInRepo
             value: tekton/tasks/slan-cuan-extract.yaml
       runAfter:
@@ -414,9 +414,9 @@ spec:
         resolver: "git"
         params:
           - name: url
-            value: https://github.com/konflux-lightwell/slan-cuan.git
+            value: $(params.taskGitUrl)
           - name: revision
-            value: main
+            value: $(params.taskGitRevision)
           - name: pathInRepo
             value: tekton/tasks/slan-cuan-sign.yaml
       runAfter:
@@ -467,9 +467,9 @@ spec:
         resolver: "git"
         params:
           - name: url
-            value: https://github.com/konflux-lightwell/slan-cuan.git
+            value: $(params.taskGitUrl)
           - name: revision
-            value: main
+            value: $(params.taskGitRevision)
           - name: pathInRepo
             value: tekton/tasks/slan-cuan-generate-security-metadata.yaml
       runAfter:
@@ -506,9 +506,9 @@ spec:
         resolver: "git"
         params:
           - name: url
-            value: https://github.com/konflux-lightwell/slan-cuan.git
+            value: $(params.taskGitUrl)
           - name: revision
-            value: main
+            value: $(params.taskGitRevision)
           - name: pathInRepo
             value: tekton/tasks/slan-cuan-publish.yaml
       runAfter:
