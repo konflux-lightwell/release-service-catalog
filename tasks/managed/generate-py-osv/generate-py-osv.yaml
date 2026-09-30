@@ -172,7 +172,7 @@ spec:
 
         echo "Wrote registry auth for $(wc -l < "${IMAGES_TXT}") image(s) to ${AUTH_OUT}"
     - name: generate
-      image: quay.io/light-castle/slan-cuan:pr-111-feat-optimize-trusted-artifact-handoff@sha256:690cc0a2e0f961c6093c29a79be1ac89758ad9cbf8ff70a6d68a36424fa2fdf5
+      image: quay.io/light-castle/slan-cuan:pr-111-feat-optimize-trusted-artifact-handoff
       computeResources:
         limits:
           memory: 512Mi
