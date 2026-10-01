@@ -131,7 +131,8 @@ spec:
               {"resultIndex": 3, "key": ".committerName"},
               {"resultIndex": 4, "key": ".committerEmail"},
               {"resultIndex": 5, "key": ".allowSourceOverwrite", "default": "false"},
-              {"resultIndex": 6, "key": ".sign.cosignSecretName", "default": ""}
+              {"resultIndex": 6, "key": ".sign.cosignSecretName", "default": ""},
+              {"resultIndex": 7, "key": ".lightwell.tagProtectionUserIds", "default": ""}
             ]
 
     # ── 3. Reduce Snapshot ───────────────────────────────────────────────────
@@ -265,6 +266,8 @@ spec:
           value: $(tasks.collect-task-params.results.extractedValues[5])
         - name: signingSecretName
           value: $(tasks.collect-task-params.results.extractedValues[6])
+        - name: tagProtectionUserIds
+          value: $(tasks.collect-task-params.results.extractedValues[7])
         - name: taskGitUrl
           value: $(params.taskGitUrl)
         - name: taskGitRevision
