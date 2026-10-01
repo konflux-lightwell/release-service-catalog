@@ -132,7 +132,7 @@ spec:
               {"resultIndex": 4, "key": ".committerEmail"},
               {"resultIndex": 5, "key": ".allowSourceOverwrite", "default": "false"},
               {"resultIndex": 6, "key": ".sign.cosignSecretName", "default": ""},
-              {"resultIndex": 7, "key": ".tagProtectionUserIds", "default": ""}
+              {"resultIndex": 7, "key": ".lightwell.tagProtectionUserIds", "default": ""}
             ]
 
     # ── 3. Reduce Snapshot ───────────────────────────────────────────────────
