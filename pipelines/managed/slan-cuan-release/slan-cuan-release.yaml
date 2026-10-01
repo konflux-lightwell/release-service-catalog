@@ -416,7 +416,7 @@ spec:
           - name: url
             value: https://github.com/konflux-lightwell/slan-cuan.git
           - name: revision
-            value: feat/optimize-trusted-artifact-handoff
+            value: fix/java-signing-exclusions
           - name: pathInRepo
             value: tekton/tasks/slan-cuan-sign.yaml
       runAfter:
