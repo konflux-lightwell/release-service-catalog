@@ -60,7 +60,7 @@ spec:
     - name: taisceCuanGitRevision
       type: string
       description: Revision for taisce-cuan tasks
-      default: "main"
+      default: "feat/LWLP-2287-python-entrypoints"
     - name: ociStorage
       type: string
       description: OCI storage repository for Trusted Artifacts
