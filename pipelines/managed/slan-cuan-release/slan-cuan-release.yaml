@@ -485,8 +485,6 @@ spec:
           value: $(params.ociStorage)
         - name: ociArtifactExpiresAfter
           value: $(params.ociArtifactExpiresAfter)
-        - name: trustedArtifactsDebug
-          value: $(params.trustedArtifactsDebug)
         - name: orasOptions
           value: $(params.orasOptions)
         - name: caTrustConfigMapName
