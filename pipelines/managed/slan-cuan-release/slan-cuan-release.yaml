@@ -105,11 +105,6 @@ spec:
       default: "application/vnd.redhat.gav-index-build+json"
 
     # Sign parameters
-    - name: radas-umb-host
-      description: |
-        RADAS UMB host
-      type: string
-      default: "umb.api.redhat.com"
     - name: zip-root-path
       description: |
         Root of the Maven repository tree inside the ZIP archive submitted to RADAS.
@@ -435,8 +430,6 @@ spec:
           value: "true"
         - name: DIRECT_SIGN_VERBOSE
           value: "true"
-        - name: RADAS_UMB_HOST
-          value: $(params.radas-umb-host)
         - name: REQUESTER_ID
           value: $(tasks.extract-requester-from-release.results.output-result)
         - name: ZIP_ROOT_PATH
