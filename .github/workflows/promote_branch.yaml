@@ -126,180 +126,180 @@ jobs:
           OVERRIDE_HOTFIX: ${{ inputs.override-hotfix-check }}
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
-      - name: Create Release Controller PR to infra-deployments
-        if: |
-          steps.promote.outcome == 'success'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-          GH_ACTIONS_URL: ${{ vars.RELEASE_AUTOMATIONS_ACTIONS_URL }}
-        run: |
-          PROMOTE_RELEASE_SERVICE=${{ inputs.create-release-service-infra-pr }}
-          PROMOTE_INTERNAL_SERVICES=${{ inputs.create-internal-services-infra-pr }}
+      # - name: Create Release Controller PR to infra-deployments
+      #   if: |
+      #     steps.promote.outcome == 'success'
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      #     GH_ACTIONS_URL: ${{ vars.RELEASE_AUTOMATIONS_ACTIONS_URL }}
+      #   run: |
+      #     PROMOTE_RELEASE_SERVICE=${{ inputs.create-release-service-infra-pr }}
+      #     PROMOTE_INTERNAL_SERVICES=${{ inputs.create-internal-services-infra-pr }}
 
-          CURL_TIMEOUT=20
-          CURL_RETRY=5
+      #     CURL_TIMEOUT=20
+      #     CURL_RETRY=5
 
-          cat > HEADERS << EOF
-          Accept: application/vnd.github+json
-          Authorization: Bearer ${GITHUB_TOKEN}
-          X-GitHub-Api-Version: 2022-11-28
-          EOF
+      #     cat > HEADERS << EOF
+      #     Accept: application/vnd.github+json
+      #     Authorization: Bearer ${GITHUB_TOKEN}
+      #     X-GitHub-Api-Version: 2022-11-28
+      #     EOF
 
-          # general curl configuration
-          cat > ~/.curlrc << EOF
-          # use HEADERS file
-          -H @HEADERS
-          # follow redirects
-          --location
-          # silent
-          --silent
-          # max timeout
-          --max-time ${CURL_TIMEOUT}
-          --retry ${CURL_RETRY}
-          EOF
+      #     # general curl configuration
+      #     cat > ~/.curlrc << EOF
+      #     # use HEADERS file
+      #     -H @HEADERS
+      #     # follow redirects
+      #     --location
+      #     # silent
+      #     --silent
+      #     # max timeout
+      #     --max-time ${CURL_TIMEOUT}
+      #     --retry ${CURL_RETRY}
+      #     EOF
 
-          if [ "$PROMOTE_RELEASE_SERVICE" == "true" ] || [ "$PROMOTE_INTERNAL_SERVICES" == "true" ]; then
+      #     if [ "$PROMOTE_RELEASE_SERVICE" == "true" ] || [ "$PROMOTE_INTERNAL_SERVICES" == "true" ]; then
 
-            curl \
-              "${GH_ACTIONS_URL}/workflows/promote_controller.yaml/dispatches" \
-              -d '{
-                "ref":"main",
-                "inputs": {
-                  "promotion-type": "${{ inputs.promotion-type }}",
-                  "release-service":"'$PROMOTE_RELEASE_SERVICE'",
-                  "internal-services": "'$PROMOTE_INTERNAL_SERVICES'"
-                }
-              }'
+      #       curl \
+      #         "${GH_ACTIONS_URL}/workflows/promote_controller.yaml/dispatches" \
+      #         -d '{
+      #           "ref":"main",
+      #           "inputs": {
+      #             "promotion-type": "${{ inputs.promotion-type }}",
+      #             "release-service":"'$PROMOTE_RELEASE_SERVICE'",
+      #             "internal-services": "'$PROMOTE_INTERNAL_SERVICES'"
+      #           }
+      #         }'
 
-            # get the workflow run id
-            ID=""
-            while [[ ! "$ID" =~ ^[0-9]+$ ]]; do
-              ID=$(curl \
-                "${GH_ACTIONS_URL}/workflows/promote_controller.yaml/runs?status=in_progress" \
-                  |jq -r .workflow_runs[0].id)
-              sleep 1
-            done
+      #       # get the workflow run id
+      #       ID=""
+      #       while [[ ! "$ID" =~ ^[0-9]+$ ]]; do
+      #         ID=$(curl \
+      #           "${GH_ACTIONS_URL}/workflows/promote_controller.yaml/runs?status=in_progress" \
+      #             |jq -r .workflow_runs[0].id)
+      #         sleep 1
+      #       done
 
-            STATUS=""
-            # wait for the run status
-            while [ "$STATUS" != "completed" ]; do
-              STATUS=$(curl "${GH_ACTIONS_URL}/runs/$ID" |jq -r .status)
-              sleep 1
-            done
+      #       STATUS=""
+      #       # wait for the run status
+      #       while [ "$STATUS" != "completed" ]; do
+      #         STATUS=$(curl "${GH_ACTIONS_URL}/runs/$ID" |jq -r .status)
+      #         sleep 1
+      #       done
 
-            CONCLUSION=$(curl "${GH_ACTIONS_URL}/runs/$ID" |jq -r .conclusion)
+      #       CONCLUSION=$(curl "${GH_ACTIONS_URL}/runs/$ID" |jq -r .conclusion)
 
-            # print logs
-            curl "${GH_ACTIONS_URL}/runs/$ID/logs" \
-             | gunzip - |awk '{print substr($0, 30)}'
+      #       # print logs
+      #       curl "${GH_ACTIONS_URL}/runs/$ID/logs" \
+      #        | gunzip - |awk '{print substr($0, 30)}'
 
-            echo "Promotion of controllers concluded with \"$CONCLUSION\""
-          fi
-      - name: Update Jira ticket(s)
-        if: |
-          steps.promote.outcome == 'success' &&
-          inputs.skip-jira-updates == false &&
-          inputs.dry-run == false &&
-          steps.promote.outputs.parsed_tickets_file != ''
-        env:
-          JIRA_WEBHOOK_URL: ${{ secrets.JIRA_AUTOMATION_WEBHOOK_URL }}
-          JIRA_WEBHOOK_TOKEN: ${{ secrets.JIRA_AUTOMATION_WEBHOOK_TOKEN }}
-          PARSED_TICKETS_FILE: ${{ steps.promote.outputs.parsed_tickets_file }}
-          PROMOTION_TYPE: ${{ inputs.promotion-type }}
-        run: |
-          SOURCE="${PROMOTION_TYPE%-to-*}"
-          ENVIRONMENT="${PROMOTION_TYPE#*-to-}"
+      #       echo "Promotion of controllers concluded with \"$CONCLUSION\""
+      #     fi
+      # - name: Update Jira ticket(s)
+      #   if: |
+      #     steps.promote.outcome == 'success' &&
+      #     inputs.skip-jira-updates == false &&
+      #     inputs.dry-run == false &&
+      #     steps.promote.outputs.parsed_tickets_file != ''
+      #   env:
+      #     JIRA_WEBHOOK_URL: ${{ secrets.JIRA_AUTOMATION_WEBHOOK_URL }}
+      #     JIRA_WEBHOOK_TOKEN: ${{ secrets.JIRA_AUTOMATION_WEBHOOK_TOKEN }}
+      #     PARSED_TICKETS_FILE: ${{ steps.promote.outputs.parsed_tickets_file }}
+      #     PROMOTION_TYPE: ${{ inputs.promotion-type }}
+      #   run: |
+      #     SOURCE="${PROMOTION_TYPE%-to-*}"
+      #     ENVIRONMENT="${PROMOTION_TYPE#*-to-}"
 
-          PAYLOAD=$(jq --arg env "${ENVIRONMENT}" --arg src "${SOURCE}" \
-            '{tickets: ., environment: $env, source: $src}' "${PARSED_TICKETS_FILE}")
+      #     PAYLOAD=$(jq --arg env "${ENVIRONMENT}" --arg src "${SOURCE}" \
+      #       '{tickets: ., environment: $env, source: $src}' "${PARSED_TICKETS_FILE}")
 
-          TICKET_COUNT="$(jq '.tickets | length' <<< "${PAYLOAD}")"
-          if [ "${TICKET_COUNT}" -eq 0 ]; then
-            echo "No tickets to update, skipping webhook call"
-            exit 0
-          fi
+      #     TICKET_COUNT="$(jq '.tickets | length' <<< "${PAYLOAD}")"
+      #     if [ "${TICKET_COUNT}" -eq 0 ]; then
+      #       echo "No tickets to update, skipping webhook call"
+      #       exit 0
+      #     fi
 
-          echo "Calling Jira Automation webhook for ${SOURCE} -> ${ENVIRONMENT}"
-          echo "Tickets: $(jq -r '.[].ticket' "${PARSED_TICKETS_FILE}" | tr '\n' ' ')"
+      #     echo "Calling Jira Automation webhook for ${SOURCE} -> ${ENVIRONMENT}"
+      #     echo "Tickets: $(jq -r '.[].ticket' "${PARSED_TICKETS_FILE}" | tr '\n' ' ')"
 
-          set +e
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            --retry 3 --max-time 30 \
-            -X POST "${JIRA_WEBHOOK_URL}" \
-            -H "Content-Type: application/json" \
-            -H "X-Automation-Webhook-Token: ${JIRA_WEBHOOK_TOKEN}" \
-            -d "${PAYLOAD}")
-          CURL_RC=$?
-          set -e
+      #     set +e
+      #     HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+      #       --retry 3 --max-time 30 \
+      #       -X POST "${JIRA_WEBHOOK_URL}" \
+      #       -H "Content-Type: application/json" \
+      #       -H "X-Automation-Webhook-Token: ${JIRA_WEBHOOK_TOKEN}" \
+      #       -d "${PAYLOAD}")
+      #     CURL_RC=$?
+      #     set -e
 
-          if [ "${CURL_RC}" -ne 0 ]; then
-            echo "WARNING: curl failed with exit code ${CURL_RC}"
-            echo "Promotion was successful but Jira update may have failed."
-          elif [ "${HTTP_CODE}" -eq 200 ]; then
-            echo "Jira Automation webhook called successfully (HTTP ${HTTP_CODE})"
-          else
-            echo "WARNING: Jira Automation webhook returned HTTP ${HTTP_CODE}"
-            echo "Promotion was successful but Jira update may have failed."
-          fi
+      #     if [ "${CURL_RC}" -ne 0 ]; then
+      #       echo "WARNING: curl failed with exit code ${CURL_RC}"
+      #       echo "Promotion was successful but Jira update may have failed."
+      #     elif [ "${HTTP_CODE}" -eq 200 ]; then
+      #       echo "Jira Automation webhook called successfully (HTTP ${HTTP_CODE})"
+      #     else
+      #       echo "WARNING: Jira Automation webhook returned HTTP ${HTTP_CODE}"
+      #       echo "Promotion was successful but Jira update may have failed."
+      #     fi
 
-      - name: Set up Python
-        if: |
-          steps.promote.outcome == 'success' &&
-          inputs.send-email-report == true
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
-        with:
-          python-version: '3.11'
+      # - name: Set up Python
+      #   if: |
+      #     steps.promote.outcome == 'success' &&
+      #     inputs.send-email-report == true
+      #   uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
+      #   with:
+      #     python-version: '3.11'
 
-      - name: Install dependencies
-        if: |
-          steps.promote.outcome == 'success' &&
-          inputs.send-email-report == true
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests pyyaml markdown google-generativeai
+      # - name: Install dependencies
+      #   if: |
+      #     steps.promote.outcome == 'success' &&
+      #     inputs.send-email-report == true
+      #   run: |
+      #     python -m pip install --upgrade pip
+      #     pip install requests pyyaml markdown google-generativeai
 
-      - name: Generate promotion report
-        if: |
-          steps.promote.outcome == 'success' &&
-          inputs.send-email-report == true
-        id: generate-report
-        continue-on-error: true
-        run: |
-          # Create secret files securely
-          echo "${{ secrets.GEMINI_API_KEY }}" > /tmp/gemini_api_key
-          echo "${{ secrets.SMTP_USERNAME }}" > /tmp/smtp_username
-          echo "${{ secrets.SMTP_PASSWORD }}" > /tmp/smtp_password
-          echo "${{ secrets.GH_TOKEN }}" > /tmp/gh_token
-          chmod 600 /tmp/gemini_api_key /tmp/smtp_username /tmp/smtp_password /tmp/gh_token
+      # - name: Generate promotion report
+      #   if: |
+      #     steps.promote.outcome == 'success' &&
+      #     inputs.send-email-report == true
+      #   id: generate-report
+      #   continue-on-error: true
+      #   run: |
+      #     # Create secret files securely
+      #     echo "${{ secrets.GEMINI_API_KEY }}" > /tmp/gemini_api_key
+      #     echo "${{ secrets.SMTP_USERNAME }}" > /tmp/smtp_username
+      #     echo "${{ secrets.SMTP_PASSWORD }}" > /tmp/smtp_password
+      #     echo "${{ secrets.GH_TOKEN }}" > /tmp/gh_token
+      #     chmod 600 /tmp/gemini_api_key /tmp/smtp_username /tmp/smtp_password /tmp/gh_token
 
-          # Generate the promotion report using captured commit range
-          python .github/scripts/generate_promotion_report.py $FROM_BRANCH $TO_BRANCH --commit-range "$COMMIT_RANGE"
+      #     # Generate the promotion report using captured commit range
+      #     python .github/scripts/generate_promotion_report.py $FROM_BRANCH $TO_BRANCH --commit-range "$COMMIT_RANGE"
 
-          # Clean up secret files
-          rm -f /tmp/gemini_api_key /tmp/smtp_username /tmp/smtp_password /tmp/gh_token
-        env:
-          # Non-sensitive configuration
-          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
-          EMAIL_TO: ${{ secrets.EMAIL_TO }}
-          # Sensitive secrets mounted as files per security team recommendation
-          GEMINI_API_KEY_FILE: /tmp/gemini_api_key
-          SMTP_USERNAME_FILE: /tmp/smtp_username
-          SMTP_PASSWORD_FILE: /tmp/smtp_password
-          GH_TOKEN_FILE: /tmp/gh_token
+      #     # Clean up secret files
+      #     rm -f /tmp/gemini_api_key /tmp/smtp_username /tmp/smtp_password /tmp/gh_token
+      #   env:
+      #     # Non-sensitive configuration
+      #     SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+      #     SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      #     EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+      #     EMAIL_TO: ${{ secrets.EMAIL_TO }}
+      #     # Sensitive secrets mounted as files per security team recommendation
+      #     GEMINI_API_KEY_FILE: /tmp/gemini_api_key
+      #     SMTP_USERNAME_FILE: /tmp/smtp_username
+      #     SMTP_PASSWORD_FILE: /tmp/smtp_password
+      #     GH_TOKEN_FILE: /tmp/gh_token
 
-      - name: Report generation status
-        if: always() && inputs.send-email-report == true
-        run: |
-          if [ "${{ steps.promote.outcome }}" = "success" ]; then
-            if [ "${{ steps.generate-report.outcome }}" = "success" ]; then
-              echo "✅ Promotion and email report completed successfully"
-            else
-              echo "⚠️ WARNING: Promotion succeeded but email report generation failed"
-              echo "📧 Report can be generated manually using commit range: $COMMIT_RANGE"
-              echo "📖 See documentation for manual report generation steps"
-            fi
-          else
-            echo "❌ Promotion failed - no report generated"
-          fi
+      # - name: Report generation status
+      #   if: always() && inputs.send-email-report == true
+      #   run: |
+      #     if [ "${{ steps.promote.outcome }}" = "success" ]; then
+      #       if [ "${{ steps.generate-report.outcome }}" = "success" ]; then
+      #         echo "✅ Promotion and email report completed successfully"
+      #       else
+      #         echo "⚠️ WARNING: Promotion succeeded but email report generation failed"
+      #         echo "📧 Report can be generated manually using commit range: $COMMIT_RANGE"
+      #         echo "📖 See documentation for manual report generation steps"
+      #       fi
+      #     else
+      #       echo "❌ Promotion failed - no report generated"
+      #     fi

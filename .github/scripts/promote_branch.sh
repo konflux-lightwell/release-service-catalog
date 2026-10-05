@@ -26,7 +26,7 @@
 set -e
 
 # GitHub repository details
-ORG="konflux-ci"
+ORG="konflux-lightwell"
 REPO="release-service-catalog"
 COMMIT_MAX_AGE_DAYS=6
 

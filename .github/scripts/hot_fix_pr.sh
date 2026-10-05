@@ -20,7 +20,7 @@
 set -e
 
 # GitHub repository details
-ORG="konflux-ci"
+ORG="konflux-lightwell"
 REPO="release-service-catalog"
 
 # Personal access token with appropriate permissions
