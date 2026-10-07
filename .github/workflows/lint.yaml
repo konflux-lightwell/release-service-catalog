@@ -184,6 +184,8 @@ jobs:
               github.event.merge_group.head_repo.html_url
             }}
             mobster_tasks_git_revision=main
+            slanCuanGitUrl=https://github.com/konflux-lightwell/slan-cuan.git
+            slanCuanGitRevision=main
   check-agents-md:
     name: Check AGENTS.md line count
     runs-on: ubuntu-latest
