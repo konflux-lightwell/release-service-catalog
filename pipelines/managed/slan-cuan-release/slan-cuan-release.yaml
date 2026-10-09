@@ -523,8 +523,10 @@ spec:
           value: $(tasks.collect-task-params.results.extractedValues[6])
         - name: INSECURE
           value: $(params.publish-insecure)
-        - name: CA_CERT_PATH
+        - name: CA_CERT_SECRET
           value: $(params.publish-ca-cert-secret)
+        - name: CA_CERT_PATH
+          value: /certs/ca.crt
         - name: PULP_FILE_REPOSITORY
           value: $(tasks.collect-task-params.results.extractedValues[7])
         - name: PULP_CUSTOM_HEADERS
