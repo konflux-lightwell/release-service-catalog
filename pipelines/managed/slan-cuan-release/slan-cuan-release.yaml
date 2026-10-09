@@ -248,7 +248,8 @@ spec:
               {"resultIndex": 8, "key": ".osidb.apiUrl"},
               {"resultIndex": 9, "key": ".osidb.kerberosPrincipal"},
               {"resultIndex": 10, "key": ".osidb.kerberosKeytabPath"},
-              {"resultIndex": 11, "key": ".pulp.customHeaders", "default": ""}
+              {"resultIndex": 11, "key": ".pulp.customHeaders", "default": ""},
+              {"resultIndex": 12, "key": ".pulp.uploadWorkers", "default": "4"}
             ]
         - name: ociStorage
           value: $(params.ociStorage)
@@ -523,6 +524,8 @@ spec:
           value: $(tasks.collect-task-params.results.extractedValues[6])
         - name: INSECURE
           value: $(params.publish-insecure)
+        - name: UPLOAD_WORKERS
+          value: $(tasks.collect-task-params.results.extractedValues[12])
         - name: CA_CERT_PATH
           value: $(params.publish-ca-cert-secret)
         - name: PULP_FILE_REPOSITORY
