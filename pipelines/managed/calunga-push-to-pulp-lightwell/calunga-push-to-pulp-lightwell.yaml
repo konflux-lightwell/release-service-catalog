@@ -149,37 +149,6 @@ spec:
               {"resultIndex": 12, "key": ".lightwell.publishAll", "default": "false"}
             ]
 
-    - name: collect-snapshot-params
-      taskRef:
-        resolver: "git"
-        params:
-          - name: url
-            value: $(params.taskGitUrl)
-          - name: revision
-            value: $(params.taskGitRevision)
-          - name: pathInRepo
-            value: tasks/managed/collect-task-params/collect-task-params.yaml
-      runAfter:
-        - collect-data
-      params:
-        - name: taskGitUrl
-          value: $(params.taskGitUrl)
-        - name: taskGitRevision
-          value: $(params.taskGitRevision)
-        - name: ociStorage
-          value: $(params.ociStorage)
-        - name: sourceDataArtifact
-          value: "$(tasks.collect-data.results.sourceDataArtifact)"
-        - name: dataPath
-          value: $(tasks.collect-data.results.snapshotSpec)
-        - name: dataDir
-          value: $(params.dataDir)
-        - name: keysToExtract
-          value: |
-            [
-              {"resultIndex": 0, "key": ".components[0].containerImage"}
-            ]
-
     - name: reduce-snapshot
       taskRef:
         resolver: "git"
@@ -244,35 +213,7 @@ spec:
       runAfter:
         - reduce-snapshot
 
-    - name: extract-py-artifacts
-      taskRef:
-        resolver: "git"
-        params:
-          - name: url
-            value: $(params.taskGitUrl)
-          - name: revision
-            value: $(params.taskGitRevision)
-          - name: pathInRepo
-            value: tasks/managed/extract-py-artifacts/extract-py-artifacts.yaml
-      params:
-        - name: SNAPSHOT_PATH
-          value: $(tasks.collect-data.results.snapshotSpec)
-        - name: sourceDataArtifact
-          value: "$(tasks.reduce-snapshot.results.sourceDataArtifact)"
-        - name: ociStorage
-          value: $(params.ociStorage)
-        - name: taskGitUrl
-          value: $(params.taskGitUrl)
-        - name: taskGitRevision
-          value: $(params.taskGitRevision)
-        - name: dataDir
-          value: $(params.dataDir)
-        - name: dataPath
-          value: $(tasks.collect-data.results.data)
-      runAfter:
-        - verify-enterprise-contract
-
-    - name: filter-py-artifacts
+    - name: extract-filter-py-artifacts
       taskRef:
         resolver: "git"
         params:
@@ -281,18 +222,18 @@ spec:
           - name: revision
             value: $(params.slanCuanGitRevision)
           - name: pathInRepo
-            value: tekton/tasks/slan-cuan-build-index-filter.yaml
+            value: tekton/tasks/python/slan-cuan-extract-filter.yaml
       params:
-        - name: IMAGE_REF
-          value: $(tasks.collect-snapshot-params.results.extractedValues[0])
+        - name: SNAPSHOT_PATH
+          value: $(tasks.collect-data.results.snapshotSpec)
+        - name: sourceDataArtifact
+          value: "$(tasks.reduce-snapshot.results.sourceDataArtifact)"
         - name: PUBLISH_ALL
           value: $(tasks.collect-task-params.results.extractedValues[12])
         - name: PAYLOAD_DIR
           value: $(params.dataDir)/files
         - name: REGISTRY_AUTH_SECRET
           value: $(params.registry-auth-secret)
-        - name: sourceDataArtifact
-          value: "$(tasks.extract-py-artifacts.results.sourceDataArtifact)"
         - name: dataDir
           value: $(params.dataDir)
         - name: ociStorage
@@ -302,9 +243,8 @@ spec:
         - name: catalogGitRevision
           value: $(params.taskGitRevision)
       runAfter:
-        - extract-py-artifacts
+        - verify-enterprise-contract
         - collect-task-params
-        - collect-snapshot-params
 
     - name: rh-sign-python-wheels
       timeout: "2h00m0s"
@@ -325,7 +265,7 @@ spec:
         - name: secretName
           value: "$(params.signingSecretName)"
         - name: sourceDataArtifact
-          value: "$(tasks.filter-py-artifacts.results.sourceDataArtifact)"
+          value: "$(tasks.extract-filter-py-artifacts.results.sourceDataArtifact)"
         - name: ociStorage
           value: $(params.ociStorage)
         - name: taskGitUrl
@@ -333,7 +273,7 @@ spec:
         - name: taskGitRevision
           value: $(params.taskGitRevision)
       runAfter:
-        - filter-py-artifacts
+        - extract-filter-py-artifacts
 
     - name: generate-py-osv
       when:
