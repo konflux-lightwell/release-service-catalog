@@ -46,6 +46,23 @@ spec:
       type: string
       description: The revision in the taskGitUrl repo to be used
       default: production
+    - name: slanCuanGitUrl
+      type: string
+      description: The url to the git repo where the slan-cuan tasks are stored
+      default: https://github.com/konflux-lightwell/slan-cuan.git
+    - name: slanCuanGitRevision
+      type: string
+      description: The revision in the slanCuanGitUrl repo to be used
+      # LWLP-3276 draft wiring: pinned to the lwlp3276-build-index-filter
+      # branch (draft of slan-cuan#124). Re-pin to the merged main commit
+      # once that PR lands.
+      default: lwlp3276-build-index-filter
+    - name: registry-auth-secret
+      type: string
+      description: |
+        Kubernetes Secret name for registry authentication (.dockerconfigjson format).
+        Points to a Docker/Podman auth config for accessing private registries
+      default: "registry-auth"
     - name: signingSecretName
       type: string
       description: The name of the AWS KMS signing secret
@@ -128,7 +145,8 @@ spec:
               {"resultIndex": 8, "key": ".osidb.kerberosKeytabPath", "default": ""},
               {"resultIndex": 9, "key": ".pulp.osvRepository", "default": ""},
               {"resultIndex": 10, "key": ".osidb.keytabSecretName", "default": ""},
-              {"resultIndex": 11, "key": ".lightwell.skipPublishing", "default": "false"}
+              {"resultIndex": 11, "key": ".lightwell.skipPublishing", "default": "false"},
+              {"resultIndex": 12, "key": ".lightwell.publishAll", "default": "false"}
             ]
 
     - name: reduce-snapshot
@@ -195,33 +213,38 @@ spec:
       runAfter:
         - reduce-snapshot
 
-    - name: extract-py-artifacts
+    - name: extract-filter-py-artifacts
       taskRef:
         resolver: "git"
         params:
           - name: url
-            value: $(params.taskGitUrl)
+            value: $(params.slanCuanGitUrl)
           - name: revision
-            value: $(params.taskGitRevision)
+            value: $(params.slanCuanGitRevision)
           - name: pathInRepo
-            value: tasks/managed/extract-py-artifacts/extract-py-artifacts.yaml
+            value: tekton/tasks/python/slan-cuan-extract-filter.yaml
       params:
         - name: SNAPSHOT_PATH
           value: $(tasks.collect-data.results.snapshotSpec)
         - name: sourceDataArtifact
           value: "$(tasks.reduce-snapshot.results.sourceDataArtifact)"
-        - name: ociStorage
-          value: $(params.ociStorage)
-        - name: taskGitUrl
-          value: $(params.taskGitUrl)
-        - name: taskGitRevision
-          value: $(params.taskGitRevision)
+        - name: PUBLISH_ALL
+          value: $(tasks.collect-task-params.results.extractedValues[12])
+        - name: PAYLOAD_DIR
+          value: $(params.dataDir)/files
+        - name: REGISTRY_AUTH_SECRET
+          value: $(params.registry-auth-secret)
         - name: dataDir
           value: $(params.dataDir)
-        - name: dataPath
-          value: $(tasks.collect-data.results.data)
+        - name: ociStorage
+          value: $(params.ociStorage)
+        - name: catalogGitUrl
+          value: $(params.taskGitUrl)
+        - name: catalogGitRevision
+          value: $(params.taskGitRevision)
       runAfter:
         - verify-enterprise-contract
+        - collect-task-params
 
     - name: rh-sign-python-wheels
       timeout: "2h00m0s"
@@ -242,7 +265,7 @@ spec:
         - name: secretName
           value: "$(params.signingSecretName)"
         - name: sourceDataArtifact
-          value: "$(tasks.extract-py-artifacts.results.sourceDataArtifact)"
+          value: "$(tasks.extract-filter-py-artifacts.results.sourceDataArtifact)"
         - name: ociStorage
           value: $(params.ociStorage)
         - name: taskGitUrl
@@ -250,7 +273,7 @@ spec:
         - name: taskGitRevision
           value: $(params.taskGitRevision)
       runAfter:
-        - extract-py-artifacts
+        - extract-filter-py-artifacts
 
     - name: generate-py-osv
       when:
