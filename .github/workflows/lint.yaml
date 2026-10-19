@@ -174,8 +174,6 @@ jobs:
           fail-on-error: true
           verbose: true
           task-dir: ./tasks
-          # LWLP-3276 draft wiring: slanCuanGitRevision points at the
-          # slan-cuan#124 draft branch until it merges; restore to main.
           params: |
             taskGitRevision=${{
               github.event.pull_request.head.ref ||
@@ -187,7 +185,7 @@ jobs:
             }}
             mobster_tasks_git_revision=main
             slanCuanGitUrl=https://github.com/konflux-lightwell/slan-cuan.git
-            slanCuanGitRevision=lwlp3276-build-index-filter
+            slanCuanGitRevision=main
   check-agents-md:
     name: Check AGENTS.md line count
     runs-on: ubuntu-latest

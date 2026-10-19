@@ -53,10 +53,10 @@ spec:
     - name: slanCuanGitRevision
       type: string
       description: The revision in the slanCuanGitUrl repo to be used
-      # LWLP-3276 draft wiring: pinned to the lwlp3276-build-index-filter
-      # branch (draft of slan-cuan#124). Re-pin to the merged main commit
-      # once that PR lands.
-      default: lwlp3276-build-index-filter
+      # LWLP-3276: pinned to the slan-cuan main commit that merged #124
+      # (python extract-filter). Immutable pin, mirroring the convention
+      # used by the slan-cuan-release pipeline.
+      default: 99a91be517a9ad310348a90a1f9210f4da67bcd4
     - name: registry-auth-secret
       type: string
       description: |
