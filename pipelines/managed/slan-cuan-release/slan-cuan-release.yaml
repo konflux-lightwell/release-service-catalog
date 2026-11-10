@@ -85,7 +85,7 @@ spec:
     - name: slanCuanGitRevision
       type: string
       description: The revision in the slanCuanGitUrl repo to be used
-      default: db4f611567a78208b4bbddbb9198028bc782f23d
+      default: d209aea1084887ee5591e63acab2eb5950fae61f
 
     # Extract parameters
     - name: registry-auth-secret
@@ -429,6 +429,7 @@ spec:
             value: tekton/tasks/slan-cuan-sign.yaml
       runAfter:
         - extract
+        - inject-enriched-sboms
         - collect-task-params
         - verify-conforma
         - extract-requester-from-release
@@ -453,8 +454,10 @@ spec:
           value: $(params.ignore-patterns)
         - name: sourceDataArtifact
           value: $(tasks.extract.results.sourceDataArtifact)
+        # build-output.zip with the enriched SBOM injected (LWLP-4822);
+        # unchanged from extract when there is nothing to inject.
         - name: signingDataArtifact
-          value: $(tasks.extract.results.signingDataArtifact)
+          value: $(tasks.inject-enriched-sboms.results.signingDataArtifact)
         - name: ociStorage
           value: $(params.ociStorage)
         - name: orasOptions
@@ -508,6 +511,38 @@ spec:
           value: $(params.taskGitUrl)
         - name: catalogGitRevision
           value: $(params.taskGitRevision)
+
+    - name: inject-enriched-sboms
+      taskRef:
+        resolver: "git"
+        params:
+          - name: url
+            value: $(params.slanCuanGitUrl)
+          - name: revision
+            value: $(params.slanCuanGitRevision)
+          - name: pathInRepo
+            value: tekton/tasks/slan-cuan-inject-sboms.yaml
+      runAfter:
+        - extract
+        - generate-security-metadata
+      params:
+        - name: signingDataArtifact
+          value: $(tasks.extract.results.signingDataArtifact)
+        - name: securityMetadataArtifact
+          value: $(tasks.generate-security-metadata.results.securityMetadataArtifact)
+        - name: ociStorage
+          value: $(params.ociStorage)
+        - name: orasOptions
+          value: $(params.orasOptions)
+        - name: caTrustConfigMapName
+          value: $(params.caTrustConfigMapName)
+        - name: caTrustConfigMapKey
+          value: $(params.caTrustConfigMapKey)
+        - name: catalogGitUrl
+          value: $(params.taskGitUrl)
+        - name: catalogGitRevision
+          value: $(params.taskGitRevision)
+
     - name: publish
       taskRef:
         resolver: "git"
