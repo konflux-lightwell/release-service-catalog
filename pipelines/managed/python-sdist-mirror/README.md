@@ -17,5 +17,5 @@ Unlike wheel release pipelines, this pipeline does NOT perform wheel signing or 
 | taskGitUrl                      | Git repository containing the release tasks                         | Yes      | https://github.com/konflux-lightwell/release-service-catalog.git |
 | taskGitRevision                 | Git revision for release tasks                                      | Yes      | development-python                                               |
 | taisceCuanGitUrl                | Git repository containing taisce-cuan tasks                         | Yes      | https://github.com/konflux-lightwell/taisce-cuan.git             |
-| taisceCuanGitRevision           | Revision for taisce-cuan tasks                                      | Yes      | main                                                             |
+| taisceCuanGitRevision           | Revision for taisce-cuan tasks                                      | Yes      | 282754bceabd06f678b2de839d7b5fbd60a04d4a                         |
 | ociStorage                      | OCI storage repository for Trusted Artifacts                        | Yes      | quay.io/konflux-ci/release-service-trusted-artifacts             |
