@@ -8,8 +8,8 @@ spec:
     Extract Python packages from OCI artifacts for signing and upload.
     The fetch-chains-provenance step verifies and retrieves Tekton Chains SLSA provenance
     using cosign with the public key from k8s://openshift-pipelines/public-key, and
-    surfaces sourceType/upstreamUrl/upstreamRef. The pipeline service account must have
-    get access to this secret.
+    surfaces sourceType/upstreamUrl/upstreamRef/packageName/packageVersion. The pipeline
+    service account must have get access to this secret.
     The populate-release-notes step parses wheel SBOMs for pkg:pypi PURLs,
     populates releaseNotes.content.artifacts, and ensures mapping.components
     entries have contentType set to "generic" for downstream advisory creation.
@@ -75,6 +75,20 @@ spec:
       description: >-
         The upstream git ref/commit used to build the image(s), when
         sourceType is "git". Empty for pypi-sdist route images.
+      type: string
+    - name: packageName
+      description: >-
+        Canonical Python package name used to build the image(s), when
+        sourceType is "git" (python-git-ingest's PACKAGE build parameter).
+        Empty for pypi-sdist route images, where the package name is instead
+        auto-discovered from the sdist archive filename.
+      type: string
+    - name: packageVersion
+      description: >-
+        Package version used to build the image(s), when sourceType is
+        "git" (python-git-ingest's VERSION build parameter). Empty for
+        pypi-sdist route images, where the version is instead auto-discovered
+        from the sdist archive filename.
       type: string
   volumes:
     - name: workdir
@@ -232,10 +246,14 @@ spec:
         SOURCE_TYPE="pypi-sdist"
         UPSTREAM_URL=""
         UPSTREAM_REF=""
+        PACKAGE_NAME=""
+        PACKAGE_VERSION=""
         if [[ -n "${PROV_FILE}" ]]; then
           SOURCE_TYPE=$(jq -r '.predicate?.invocation?.parameters?.SOURCE_TYPE? // "pypi-sdist"' "${PROV_FILE}")
           UPSTREAM_URL=$(jq -r '.predicate?.invocation?.parameters?.UPSTREAM_URL? // ""' "${PROV_FILE}")
           UPSTREAM_REF=$(jq -r '.predicate?.invocation?.parameters?.UPSTREAM_REF? // ""' "${PROV_FILE}")
+          PACKAGE_NAME=$(jq -r '.predicate?.invocation?.parameters?.PACKAGE? // ""' "${PROV_FILE}")
+          PACKAGE_VERSION=$(jq -r '.predicate?.invocation?.parameters?.VERSION? // ""' "${PROV_FILE}")
         fi
 
         # jq's `//` doesn't catch an explicit empty-string SOURCE_TYPE.
@@ -243,19 +261,28 @@ spec:
           SOURCE_TYPE="pypi-sdist"
         fi
 
-        # Fail closed: a git build with no upstream coords has nothing to mirror.
+        # Fail closed: a git build with no upstream coords/package identity has
+        # nothing to mirror. python-git-ingest's PACKAGE/VERSION params land in
+        # the same predicate.invocation.parameters map as SOURCE_TYPE/UPSTREAM_*
+        # (see that pipeline's SOURCE_TYPE param doc), and archive-sources
+        # requires --package/--version for the git route since there is no
+        # sdist filename to auto-discover them from.
         if [[ "${SOURCE_TYPE}" == "git" ]]; then
-          if [[ -z "${UPSTREAM_URL}" || -z "${UPSTREAM_REF}" ]]; then
-            echo "ERROR: SOURCE_TYPE is 'git' but upstreamUrl/upstreamRef are missing from the Chains provenance" \
-              "(upstreamUrl='${UPSTREAM_URL}', upstreamRef='${UPSTREAM_REF}')"
+          if [[ -z "${UPSTREAM_URL}" || -z "${UPSTREAM_REF}" || -z "${PACKAGE_NAME}" || -z "${PACKAGE_VERSION}" ]]; then
+            echo "ERROR: SOURCE_TYPE is 'git' but upstreamUrl/upstreamRef/packageName/packageVersion are missing" \
+              "from the Chains provenance (upstreamUrl='${UPSTREAM_URL}', upstreamRef='${UPSTREAM_REF}'," \
+              "packageName='${PACKAGE_NAME}', packageVersion='${PACKAGE_VERSION}')"
             exit 1
           fi
         fi
 
-        echo "Resolved sourceType=${SOURCE_TYPE} upstreamUrl=${UPSTREAM_URL} upstreamRef=${UPSTREAM_REF}"
+        echo "Resolved sourceType=${SOURCE_TYPE} upstreamUrl=${UPSTREAM_URL} upstreamRef=${UPSTREAM_REF}" \
+          "packageName=${PACKAGE_NAME} packageVersion=${PACKAGE_VERSION}"
         echo -n "${SOURCE_TYPE}" > "$(results.sourceType.path)"
         echo -n "${UPSTREAM_URL}" > "$(results.upstreamUrl.path)"
         echo -n "${UPSTREAM_REF}" > "$(results.upstreamRef.path)"
+        echo -n "${PACKAGE_NAME}" > "$(results.packageName.path)"
+        echo -n "${PACKAGE_VERSION}" > "$(results.packageVersion.path)"
 
     - name: populate-release-notes
       image: quay.io/konflux-ci/release-service-utils@sha256:5546fa78d3c88d7b6a2e8cff8902f7757f00541d0bbaf113b9f293133894afa3

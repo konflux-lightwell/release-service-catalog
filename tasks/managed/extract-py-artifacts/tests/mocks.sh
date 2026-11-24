@@ -108,7 +108,8 @@ function cosign() {
               "SOURCE_TYPE": "git",
               "UPSTREAM_URL": "https://github.com/test-org/test-package",
               "UPSTREAM_REF": "v1.2.3",
-              "PACKAGES": ["test_package==1.0.0"]
+              "PACKAGE": "test_package",
+              "VERSION": "1.0.0"
             },
             "environment": {}
           },

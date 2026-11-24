@@ -252,6 +252,10 @@ spec:
           value: $(tasks.extract-py-artifacts.results.upstreamUrl)
         - name: upstreamRef
           value: $(tasks.extract-py-artifacts.results.upstreamRef)
+        - name: packageName
+          value: $(tasks.extract-py-artifacts.results.packageName)
+        - name: packageVersion
+          value: $(tasks.extract-py-artifacts.results.packageVersion)
         - name: gitForgeUrl
           value: $(tasks.collect-task-params.results.extractedValues[0])
         - name: gitGroup
