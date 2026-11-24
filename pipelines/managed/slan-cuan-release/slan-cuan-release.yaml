@@ -85,7 +85,7 @@ spec:
     - name: slanCuanGitRevision
       type: string
       description: The revision in the slanCuanGitUrl repo to be used
-      default: 313878ed751928846b56798c9c69712860d40e0d
+      default: 470e14a0adb096bfd91b1fa794d33c9c5b6682b3
 
     # Extract parameters
     - name: registry-auth-secret
@@ -262,7 +262,8 @@ spec:
               {"resultIndex": 12, "key": ".githubOsv.tokenSecret", "default": "slan-cuan-github-osv-token"},
               {"resultIndex": 13, "key": ".githubOsv.branch", "default": "main"},
               {"resultIndex": 14, "key": ".githubOsv.path", "default": "advisories"},
-              {"resultIndex": 15, "key": ".pulp.vexRepository", "default": ""}
+              {"resultIndex": 15, "key": ".pulp.vexRepository", "default": ""},
+              {"resultIndex": 16, "key": ".pulp.skipAssociate", "default": "false"}
             ]
         - name: ociStorage
           value: $(params.ociStorage)
@@ -574,6 +575,8 @@ spec:
           value: $(params.publish-insecure)
         - name: UPLOAD_WORKERS
           value: $(tasks.collect-task-params.results.extractedValues[10])
+        - name: SKIP_ASSOCIATE
+          value: $(tasks.collect-task-params.results.extractedValues[16])
         - name: CA_CERT_SECRET
           value: $(params.publish-ca-cert-secret)
         - name: CA_CERT_PATH
