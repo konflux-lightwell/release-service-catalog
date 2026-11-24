@@ -85,7 +85,7 @@ spec:
     - name: slanCuanGitRevision
       type: string
       description: The revision in the slanCuanGitUrl repo to be used
-      default: 313878ed751928846b56798c9c69712860d40e0d
+      default: 02122fc373550bdf66423e8d1df24d9afb807043
 
     # Extract parameters
     - name: registry-auth-secret
