@@ -48,7 +48,7 @@ spec:
     - name: taskGitRevision
       type: string
       description: Git revision for release tasks
-      default: "9fc1660a23db849cc86f239b182d235af021419a"
+      default: "d5e29f2cbf2afed3ec46769923e24330789ad721"
     - name: taisceCuanGitUrl
       type: string
       description: Git repository containing taisce-cuan tasks
