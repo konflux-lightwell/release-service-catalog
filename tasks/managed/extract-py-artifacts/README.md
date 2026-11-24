@@ -1,12 +1,15 @@
 # extract-py-artifacts
 
 Extract Python packages from OCI artifacts for signing and upload.
+The fetch-chains-provenance step verifies and retrieves Tekton Chains SLSA provenance
+using cosign with the public key from k8s://openshift-pipelines/public-key, and
+surfaces sourceType/upstreamUrl/upstreamRef. The pipeline service account must have
+get access to this secret.
 The populate-release-notes step parses wheel SBOMs for pkg:pypi PURLs,
 populates releaseNotes.content.artifacts, and ensures mapping.components
 entries have contentType set to "generic" for downstream advisory creation.
-The fetch-chains-provenance step verifies and retrieves Tekton Chains SLSA provenance
-using cosign with the public key from k8s://openshift-pipelines/public-key.
-The pipeline service account must have get access to this secret
+It is skipped for sourceType "git" (python-git-ingest), since those images
+contain a raw git source checkout rather than wheels or sdist archives.
 
 ## Parameters
 
