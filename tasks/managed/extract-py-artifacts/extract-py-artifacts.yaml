@@ -288,8 +288,10 @@ spec:
             return
           fi
 
+          # Extract arch from platform tag (last underscore-separated segment)
           local arch="${platform##*_}"
 
+          # Derive OS from platform prefix
           local os="any"
           if [[ "$platform" == manylinux* || "$platform" == musllinux* || "$platform" == linux* ]]; then
             os="linux"
@@ -302,6 +304,7 @@ spec:
           echo "$arch $os"
         }
 
+        # Collect artifact entries as JSON lines for later deduplication
         ARTIFACTS_JSONL=$(mktemp)
 
         for whl in "${FILES_DIR}"/*.whl; do
@@ -323,6 +326,7 @@ spec:
           version="${parts[1]}"
           platform="${parts[$((num_parts - 1))]}"
 
+          # Extract SBOM from wheel zip
           dist_info="${name}-${version}.dist-info"
           sbom_path="${dist_info}/sboms/redhat.spdx.json"
           echo "  Extracting SBOM: $sbom_path"
@@ -331,6 +335,7 @@ spec:
             exit 1
           }
 
+          # Find pkg:pypi PURL from SPDX SBOM
           purl=$(jq -r '
             [.packages[]?.externalRefs[]?
               | select(.referenceType == "purl")
@@ -344,9 +349,11 @@ spec:
           fi
           echo "  Found PURL: $purl"
 
+          # Parse platform tag
           read -r arch os <<< "$(parse_wheel_platform "$platform")"
           echo "  Platform: $platform -> arch=$arch, os=$os"
 
+          # Build artifact entry as JSON line
           jq -nc \
             --arg component "$name" \
             --arg purl "$purl" \
@@ -377,11 +384,13 @@ spec:
         else
           echo "Adding $ARTIFACT_COUNT artifact(s) to releaseNotes.content.artifacts"
 
+          # Append entries to .releaseNotes.content.artifacts[] in data.json
           TMP_DATA=$(mktemp)
           jq --argjson artifacts "$DEDUPED" '
             .releaseNotes.content.artifacts = (.releaseNotes.content.artifacts // []) + $artifacts
           ' "$DATA_FILE" > "$TMP_DATA" && mv "$TMP_DATA" "$DATA_FILE"
 
+          # Ensure mapping.components[] includes each artifact component with contentType
           COMPONENT_NAMES=$(jq -r '[.[].component] | unique | .[]' <<< "$DEDUPED")
           MAPPING_ENTRIES="[]"
           while IFS= read -r comp; do
