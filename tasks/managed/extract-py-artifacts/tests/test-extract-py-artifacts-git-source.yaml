@@ -8,7 +8,8 @@ spec:
     Test that extract-py-artifacts surfaces sourceType/upstreamUrl/upstreamRef
     task results from the Chains SLSA provenance of a git-source
     (python-git-ingest) build, rather than defaulting to the legacy
-    pypi-sdist route.
+    pypi-sdist route, and that it succeeds without wheel/sdist archives
+    present -- a git-source OCI artifact is a raw git checkout tree.
   params:
     - name: ociStorage
       description: The OCI repository where the Trusted Artifacts are stored.
@@ -189,6 +190,27 @@ spec:
               PROV_DIR="${FILES_DIR}/chains-provenance"
               if [ ! -d "${PROV_DIR}" ]; then
                 echo "ERROR: chains-provenance directory not found"
+                exit 1
+              fi
+
+              # Check that the mocked git-source checkout tree was extracted
+              # (no wheels/sdists -- see tests/mocks.sh's oras pull mock).
+              if [ ! -f "${FILES_DIR}/pyproject.toml" ]; then
+                echo "ERROR: expected git-source checkout file not found"
+                ls -la "${FILES_DIR}"
+                exit 1
+              fi
+
+              # Check that releaseNotes artifacts were NOT populated for the
+              # git route -- extract-py-artifacts must skip the wheel-based
+              # population step entirely instead of failing on the absence
+              # of .whl/sdist archives (see "Neither .whl nor sdist archives
+              # found" regression on a real python-git-ingest pilot run).
+              DATA_FILE="$(params.dataDir)/$(context.pipelineRun.uid)/data.json"
+              ARTIFACT_COUNT=$(jq '[.releaseNotes.content.artifacts[] ] | length' "$DATA_FILE")
+              if [ "$ARTIFACT_COUNT" -ne 0 ]; then
+                echo "ERROR: Artifacts unexpectedly populated in releaseNotes for git route"
+                jq . "$DATA_FILE"
                 exit 1
               fi
 

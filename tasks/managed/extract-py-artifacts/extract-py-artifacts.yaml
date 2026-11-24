@@ -6,12 +6,15 @@ metadata:
 spec:
   description: |
     Extract Python packages from OCI artifacts for signing and upload.
+    The fetch-chains-provenance step verifies and retrieves Tekton Chains SLSA provenance
+    using cosign with the public key from k8s://openshift-pipelines/public-key, and
+    surfaces sourceType/upstreamUrl/upstreamRef. The pipeline service account must have
+    get access to this secret.
     The populate-release-notes step parses wheel SBOMs for pkg:pypi PURLs,
     populates releaseNotes.content.artifacts, and ensures mapping.components
     entries have contentType set to "generic" for downstream advisory creation.
-    The fetch-chains-provenance step verifies and retrieves Tekton Chains SLSA provenance
-    using cosign with the public key from k8s://openshift-pipelines/public-key.
-    The pipeline service account must have get access to this secret
+    It is skipped for sourceType "git" (python-git-ingest), since those images
+    contain a raw git source checkout rather than wheels or sdist archives.
   params:
     - name: SNAPSHOT_PATH
       type: string
@@ -175,6 +178,112 @@ spec:
         echo "Extracted files:"
         ls -la "${FILES_DIR}"
 
+    - name: fetch-chains-provenance
+      image: quay.io/konflux-ci/release-service-utils@sha256:5546fa78d3c88d7b6a2e8cff8902f7757f00541d0bbaf113b9f293133894afa3
+      computeResources:
+        limits:
+          memory: 256Mi
+          cpu: 100m
+        requests:
+          memory: 256Mi
+          cpu: 100m
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        PROVENANCE_DIR="${FILES_DIR}/chains-provenance"
+        DOCKER_CONFIG="$(mktemp -d)"
+        export DOCKER_CONFIG
+        mkdir -p "${PROVENANCE_DIR}"
+
+        while read -r IMAGE; do
+          echo "Fetching Chains provenance for ${IMAGE}"
+
+          select-oci-auth "${IMAGE}" > "${DOCKER_CONFIG}/config.json"
+
+          # Use the image digest as the filename so downstream can
+          # match provenance to the image that produced it.
+          DIGEST="${IMAGE##*@}"
+          PROVENANCE_FILE="${PROVENANCE_DIR}/${DIGEST}.json"
+
+          # Chains uses AWS KMS for signing, not public Sigstore/Rekor,
+          # so transparency log and SCT verification are skipped.
+          COSIGN_STDERR="/tmp/cosign-stderr-${DIGEST}.log"
+          if cosign verify-attestation \
+            --type=slsaprovenance \
+            --insecure-ignore-tlog=true \
+            --insecure-ignore-sct=true \
+            --key k8s://openshift-pipelines/public-key \
+            "${IMAGE}" 2>"${COSIGN_STDERR}" | head -1 | jq '.payload | @base64d | fromjson' > "${PROVENANCE_FILE}"; then
+            echo "  Saved Chains provenance to ${PROVENANCE_FILE}"
+          else
+            echo "ERROR: Failed to fetch Chains provenance for ${IMAGE}"
+            cat "${COSIGN_STDERR}"
+            exit 1
+          fi
+          rm -f "${COSIGN_STDERR}"
+        done < "${IMAGES_TXT}"
+
+        echo "Chains provenance files:"
+        ls -la "${PROVENANCE_DIR}"
+
+        # Surface sourceType/upstreamUrl/upstreamRef from the first Chains
+        # provenance file. All images in a Snapshot come from the same build
+        # pipeline, so one provenance file's build parameters are sufficient
+        # to determine the source route for the whole release.
+        #
+        # ASSUMPTION PENDING CONFIRMATION: the field path below
+        # (predicate.invocation.parameters.<NAME>) matches Tekton Chains'
+        # SLSA v0.2 "slsaprovenance" predicate format (what cosign's
+        # --type=slsaprovenance flag above requests), where the triggering
+        # PipelineRun's params are recorded as a flat map keyed by param name
+        # -- see https://github.com/tektoncd/chains/issues/306 (fixed by #307)
+        # and the SLSA v0.2 spec's `invocation.parameters` definition. This
+        # same path is used as a v0.2 fallback by
+        # tasks/managed/rh-sign-python-wheels's Chains-provenance consumption
+        # logic (`.invocation.parameters`), whose primary branch reads the v1
+        # `buildDefinition.externalParameters` shape instead. It has NOT yet
+        # been confirmed against a live attestation from a python-git-ingest
+        # pipeline run in this codebase -- a later live pilot task will
+        # confirm it. The jq `//` fallbacks below fail safe to the legacy
+        # pypi-sdist route if this path is wrong or the provenance has no
+        # such parameters. The `?` optional-chaining operators guard against
+        # a pathological attestation where `.predicate` or `.invocation` is a
+        # non-object (jq would otherwise exit 5 with "Cannot index string").
+        PROV_FILE=$(find "${PROVENANCE_DIR}" -maxdepth 1 -name '*.json' | sort | head -n1)
+
+        SOURCE_TYPE="pypi-sdist"
+        UPSTREAM_URL=""
+        UPSTREAM_REF=""
+        if [[ -n "${PROV_FILE}" ]]; then
+          SOURCE_TYPE=$(jq -r '.predicate?.invocation?.parameters?.SOURCE_TYPE? // "pypi-sdist"' "${PROV_FILE}")
+          UPSTREAM_URL=$(jq -r '.predicate?.invocation?.parameters?.UPSTREAM_URL? // ""' "${PROV_FILE}")
+          UPSTREAM_REF=$(jq -r '.predicate?.invocation?.parameters?.UPSTREAM_REF? // ""' "${PROV_FILE}")
+        fi
+
+        # Normalize explicitly: jq's `//` only substitutes on null/false, not
+        # on an empty string, so an attestation with SOURCE_TYPE explicitly
+        # set to "" would otherwise bypass the "pypi-sdist" default above.
+        if [[ -z "${SOURCE_TYPE}" ]]; then
+          SOURCE_TYPE="pypi-sdist"
+        fi
+
+        # Fail closed: a git-source build with missing upstream coordinates
+        # would otherwise flow silently into archive-sources with nothing to
+        # mirror, violating this plan's fail-closed principle elsewhere.
+        if [[ "${SOURCE_TYPE}" == "git" ]]; then
+          if [[ -z "${UPSTREAM_URL}" || -z "${UPSTREAM_REF}" ]]; then
+            echo "ERROR: SOURCE_TYPE is 'git' but upstreamUrl/upstreamRef are missing from the Chains provenance" \
+              "(upstreamUrl='${UPSTREAM_URL}', upstreamRef='${UPSTREAM_REF}')"
+            exit 1
+          fi
+        fi
+
+        echo "Resolved sourceType=${SOURCE_TYPE} upstreamUrl=${UPSTREAM_URL} upstreamRef=${UPSTREAM_REF}"
+        echo -n "${SOURCE_TYPE}" > "$(results.sourceType.path)"
+        echo -n "${UPSTREAM_URL}" > "$(results.upstreamUrl.path)"
+        echo -n "${UPSTREAM_REF}" > "$(results.upstreamRef.path)"
+
     - name: populate-release-notes
       image: quay.io/konflux-ci/release-service-utils@sha256:5546fa78d3c88d7b6a2e8cff8902f7757f00541d0bbaf113b9f293133894afa3
       computeResources:
@@ -188,6 +297,20 @@ spec:
         set -euo pipefail
 
         DATA_FILE="$(params.dataDir)/$(params.dataPath)"
+
+        # The git route (python-git-ingest) pushes a raw git source checkout as
+        # its OCI artifact -- never a wheel or a packaged sdist archive -- so
+        # there is no wheel SBOM to mine a pkg:pypi PURL from here. Read the
+        # sourceType already resolved by fetch-chains-provenance (which now
+        # runs before this step for exactly this reason) and skip entirely
+        # rather than hitting the "neither .whl nor sdist" failure below.
+        SOURCE_TYPE=$(cat "$(results.sourceType.path)")
+        if [[ "${SOURCE_TYPE}" == "git" ]]; then
+          echo "sourceType is 'git' (python-git-ingest route); ${FILES_DIR} contains a raw" \
+            "git source checkout, not wheels or sdist archives. Skipping wheel-based" \
+            "releaseNotes.content.artifacts population for this route."
+          exit 0
+        fi
 
         parse_wheel_platform() {
           local platform="$1"
@@ -329,112 +452,6 @@ spec:
           echo "Done. Updated artifacts:"
           jq '.releaseNotes.content.artifacts' "$DATA_FILE"
         fi
-
-    - name: fetch-chains-provenance
-      image: quay.io/konflux-ci/release-service-utils@sha256:5546fa78d3c88d7b6a2e8cff8902f7757f00541d0bbaf113b9f293133894afa3
-      computeResources:
-        limits:
-          memory: 256Mi
-          cpu: 100m
-        requests:
-          memory: 256Mi
-          cpu: 100m
-      script: |
-        #!/bin/bash
-        set -euo pipefail
-
-        PROVENANCE_DIR="${FILES_DIR}/chains-provenance"
-        DOCKER_CONFIG="$(mktemp -d)"
-        export DOCKER_CONFIG
-        mkdir -p "${PROVENANCE_DIR}"
-
-        while read -r IMAGE; do
-          echo "Fetching Chains provenance for ${IMAGE}"
-
-          select-oci-auth "${IMAGE}" > "${DOCKER_CONFIG}/config.json"
-
-          # Use the image digest as the filename so downstream can
-          # match provenance to the image that produced it.
-          DIGEST="${IMAGE##*@}"
-          PROVENANCE_FILE="${PROVENANCE_DIR}/${DIGEST}.json"
-
-          # Chains uses AWS KMS for signing, not public Sigstore/Rekor,
-          # so transparency log and SCT verification are skipped.
-          COSIGN_STDERR="/tmp/cosign-stderr-${DIGEST}.log"
-          if cosign verify-attestation \
-            --type=slsaprovenance \
-            --insecure-ignore-tlog=true \
-            --insecure-ignore-sct=true \
-            --key k8s://openshift-pipelines/public-key \
-            "${IMAGE}" 2>"${COSIGN_STDERR}" | head -1 | jq '.payload | @base64d | fromjson' > "${PROVENANCE_FILE}"; then
-            echo "  Saved Chains provenance to ${PROVENANCE_FILE}"
-          else
-            echo "ERROR: Failed to fetch Chains provenance for ${IMAGE}"
-            cat "${COSIGN_STDERR}"
-            exit 1
-          fi
-          rm -f "${COSIGN_STDERR}"
-        done < "${IMAGES_TXT}"
-
-        echo "Chains provenance files:"
-        ls -la "${PROVENANCE_DIR}"
-
-        # Surface sourceType/upstreamUrl/upstreamRef from the first Chains
-        # provenance file. All images in a Snapshot come from the same build
-        # pipeline, so one provenance file's build parameters are sufficient
-        # to determine the source route for the whole release.
-        #
-        # ASSUMPTION PENDING CONFIRMATION: the field path below
-        # (predicate.invocation.parameters.<NAME>) matches Tekton Chains'
-        # SLSA v0.2 "slsaprovenance" predicate format (what cosign's
-        # --type=slsaprovenance flag above requests), where the triggering
-        # PipelineRun's params are recorded as a flat map keyed by param name
-        # -- see https://github.com/tektoncd/chains/issues/306 (fixed by #307)
-        # and the SLSA v0.2 spec's `invocation.parameters` definition. This
-        # same path is used as a v0.2 fallback by
-        # tasks/managed/rh-sign-python-wheels's Chains-provenance consumption
-        # logic (`.invocation.parameters`), whose primary branch reads the v1
-        # `buildDefinition.externalParameters` shape instead. It has NOT yet
-        # been confirmed against a live attestation from a python-git-ingest
-        # pipeline run in this codebase -- a later live pilot task will
-        # confirm it. The jq `//` fallbacks below fail safe to the legacy
-        # pypi-sdist route if this path is wrong or the provenance has no
-        # such parameters. The `?` optional-chaining operators guard against
-        # a pathological attestation where `.predicate` or `.invocation` is a
-        # non-object (jq would otherwise exit 5 with "Cannot index string").
-        PROV_FILE=$(find "${PROVENANCE_DIR}" -maxdepth 1 -name '*.json' | sort | head -n1)
-
-        SOURCE_TYPE="pypi-sdist"
-        UPSTREAM_URL=""
-        UPSTREAM_REF=""
-        if [[ -n "${PROV_FILE}" ]]; then
-          SOURCE_TYPE=$(jq -r '.predicate?.invocation?.parameters?.SOURCE_TYPE? // "pypi-sdist"' "${PROV_FILE}")
-          UPSTREAM_URL=$(jq -r '.predicate?.invocation?.parameters?.UPSTREAM_URL? // ""' "${PROV_FILE}")
-          UPSTREAM_REF=$(jq -r '.predicate?.invocation?.parameters?.UPSTREAM_REF? // ""' "${PROV_FILE}")
-        fi
-
-        # Normalize explicitly: jq's `//` only substitutes on null/false, not
-        # on an empty string, so an attestation with SOURCE_TYPE explicitly
-        # set to "" would otherwise bypass the "pypi-sdist" default above.
-        if [[ -z "${SOURCE_TYPE}" ]]; then
-          SOURCE_TYPE="pypi-sdist"
-        fi
-
-        # Fail closed: a git-source build with missing upstream coordinates
-        # would otherwise flow silently into archive-sources with nothing to
-        # mirror, violating this plan's fail-closed principle elsewhere.
-        if [[ "${SOURCE_TYPE}" == "git" ]]; then
-          if [[ -z "${UPSTREAM_URL}" || -z "${UPSTREAM_REF}" ]]; then
-            echo "ERROR: SOURCE_TYPE is 'git' but upstreamUrl/upstreamRef are missing from the Chains provenance" \
-              "(upstreamUrl='${UPSTREAM_URL}', upstreamRef='${UPSTREAM_REF}')"
-            exit 1
-          fi
-        fi
-
-        echo "Resolved sourceType=${SOURCE_TYPE} upstreamUrl=${UPSTREAM_URL} upstreamRef=${UPSTREAM_REF}"
-        echo -n "${SOURCE_TYPE}" > "$(results.sourceType.path)"
-        echo -n "${UPSTREAM_URL}" > "$(results.upstreamUrl.path)"
-        echo -n "${UPSTREAM_REF}" > "$(results.upstreamRef.path)"
 
     - name: create-trusted-artifact
       computeResources:

@@ -35,6 +35,14 @@ function oras() {
       # Create mock Python package files
       if [[ -f "${TRUSTED_ARTIFACTS_EXTRACT_DIR}/.mock_no_artifacts" ]]; then
         echo "Creating no artifacts for failure test"
+      elif [[ -f "${TRUSTED_ARTIFACTS_EXTRACT_DIR}/.mock_git_source_provenance" ]]; then
+        # Simulate python-git-ingest's real OCI artifact shape: package-git-source-image
+        # pushes the raw top-level entries of a git checkout as-is (see
+        # taisce-cuan's package_git_source_image.py), never a .whl or sdist archive.
+        echo "mock pyproject content" > "${output_dir}/pyproject.toml"
+        mkdir -p "${output_dir}/src"
+        echo "mock source content" > "${output_dir}/src/__init__.py"
+        echo "Created mock git-source checkout tree (no wheels/sdists) in ${output_dir}"
       elif [[ -f "${TRUSTED_ARTIFACTS_EXTRACT_DIR}/.mock_no_wheels" ]]; then
         echo "mock sdist content" > "${output_dir}/test_package-1.0.0.tar.gz"
         echo "Created mock files (no wheels) in ${output_dir}"
