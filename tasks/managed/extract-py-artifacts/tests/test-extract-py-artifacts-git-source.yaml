@@ -145,6 +145,10 @@ spec:
           value: $(tasks.run-task.results.upstreamUrl)
         - name: upstreamRef
           value: $(tasks.run-task.results.upstreamRef)
+        - name: packageName
+          value: $(tasks.run-task.results.packageName)
+        - name: packageVersion
+          value: $(tasks.run-task.results.packageVersion)
       taskSpec:
         params:
           - name: sourceDataArtifact
@@ -154,6 +158,10 @@ spec:
           - name: upstreamUrl
             type: string
           - name: upstreamRef
+            type: string
+          - name: packageName
+            type: string
+          - name: packageVersion
             type: string
         volumes:
           - name: workdir
@@ -219,6 +227,8 @@ spec:
               EXPECTED_SOURCE_TYPE="git"
               EXPECTED_UPSTREAM_URL="https://github.com/test-org/test-package"
               EXPECTED_UPSTREAM_REF="v1.2.3"
+              EXPECTED_PACKAGE_NAME="test_package"
+              EXPECTED_PACKAGE_VERSION="1.0.0"
 
               if [ "$(params.sourceType)" != "${EXPECTED_SOURCE_TYPE}" ]; then
                 echo "ERROR: sourceType result mismatch. Got '$(params.sourceType)', expected '${EXPECTED_SOURCE_TYPE}'"
@@ -234,6 +244,18 @@ spec:
               if [ "$(params.upstreamRef)" != "${EXPECTED_UPSTREAM_REF}" ]; then
                 echo "ERROR: upstreamRef result mismatch."
                 echo "  Got: '$(params.upstreamRef)', expected: '${EXPECTED_UPSTREAM_REF}'"
+                exit 1
+              fi
+
+              if [ "$(params.packageName)" != "${EXPECTED_PACKAGE_NAME}" ]; then
+                echo "ERROR: packageName result mismatch."
+                echo "  Got: '$(params.packageName)', expected: '${EXPECTED_PACKAGE_NAME}'"
+                exit 1
+              fi
+
+              if [ "$(params.packageVersion)" != "${EXPECTED_PACKAGE_VERSION}" ]; then
+                echo "ERROR: packageVersion result mismatch."
+                echo "  Got: '$(params.packageVersion)', expected: '${EXPECTED_PACKAGE_VERSION}'"
                 exit 1
               fi
 

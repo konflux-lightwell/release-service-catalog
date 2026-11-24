@@ -138,6 +138,10 @@ spec:
           value: $(tasks.run-task.results.upstreamUrl)
         - name: upstreamRef
           value: $(tasks.run-task.results.upstreamRef)
+        - name: packageName
+          value: $(tasks.run-task.results.packageName)
+        - name: packageVersion
+          value: $(tasks.run-task.results.packageVersion)
       taskSpec:
         params:
           - name: sourceDataArtifact
@@ -147,6 +151,10 @@ spec:
           - name: upstreamUrl
             type: string
           - name: upstreamRef
+            type: string
+          - name: packageName
+            type: string
+          - name: packageVersion
             type: string
         volumes:
           - name: workdir
@@ -234,6 +242,16 @@ spec:
 
               if [ -n "$(params.upstreamRef)" ]; then
                 echo "ERROR: upstreamRef expected to be empty for legacy/sdist route. Got '$(params.upstreamRef)'"
+                exit 1
+              fi
+
+              if [ -n "$(params.packageName)" ]; then
+                echo "ERROR: packageName expected to be empty for legacy/sdist route. Got '$(params.packageName)'"
+                exit 1
+              fi
+
+              if [ -n "$(params.packageVersion)" ]; then
+                echo "ERROR: packageVersion expected to be empty for legacy/sdist route. Got '$(params.packageVersion)'"
                 exit 1
               fi
 
