@@ -83,11 +83,8 @@ spec:
     securityContext:
       runAsUser: 1001
     env:
-      # Set HOME to a writable, Tekton-provisioned location. The oras image used by the
-      # extract-artifacts step has no /etc/passwd entry for UID 1001, so $HOME otherwise
-      # resolves to "/". That breaks Tekton's creds-init copy of registry credentials into
-      # $HOME/.docker/config.json, which in turn makes select-oci-auth silently fall back to
-      # anonymous auth for oras pull, causing unauthorized errors against private repos.
+      # UID 1001 has no /etc/passwd entry in the oras image, so $HOME would
+      # resolve to "/" and break creds-init's registry-config copy.
       - name: HOME
         value: /tekton/home
       - name: SNAPSHOT_PATH
@@ -201,13 +198,11 @@ spec:
 
           select-oci-auth "${IMAGE}" > "${DOCKER_CONFIG}/config.json"
 
-          # Use the image digest as the filename so downstream can
-          # match provenance to the image that produced it.
+          # Filename = image digest, so downstream can match provenance to image.
           DIGEST="${IMAGE##*@}"
           PROVENANCE_FILE="${PROVENANCE_DIR}/${DIGEST}.json"
 
-          # Chains uses AWS KMS for signing, not public Sigstore/Rekor,
-          # so transparency log and SCT verification are skipped.
+          # Chains signs via AWS KMS, not Sigstore/Rekor -- skip tlog/SCT checks.
           COSIGN_STDERR="/tmp/cosign-stderr-${DIGEST}.log"
           if cosign verify-attestation \
             --type=slsaprovenance \
@@ -227,29 +222,11 @@ spec:
         echo "Chains provenance files:"
         ls -la "${PROVENANCE_DIR}"
 
-        # Surface sourceType/upstreamUrl/upstreamRef from the first Chains
-        # provenance file. All images in a Snapshot come from the same build
-        # pipeline, so one provenance file's build parameters are sufficient
-        # to determine the source route for the whole release.
-        #
-        # ASSUMPTION PENDING CONFIRMATION: the field path below
-        # (predicate.invocation.parameters.<NAME>) matches Tekton Chains'
-        # SLSA v0.2 "slsaprovenance" predicate format (what cosign's
-        # --type=slsaprovenance flag above requests), where the triggering
-        # PipelineRun's params are recorded as a flat map keyed by param name
-        # -- see https://github.com/tektoncd/chains/issues/306 (fixed by #307)
-        # and the SLSA v0.2 spec's `invocation.parameters` definition. This
-        # same path is used as a v0.2 fallback by
-        # tasks/managed/rh-sign-python-wheels's Chains-provenance consumption
-        # logic (`.invocation.parameters`), whose primary branch reads the v1
-        # `buildDefinition.externalParameters` shape instead. It has NOT yet
-        # been confirmed against a live attestation from a python-git-ingest
-        # pipeline run in this codebase -- a later live pilot task will
-        # confirm it. The jq `//` fallbacks below fail safe to the legacy
-        # pypi-sdist route if this path is wrong or the provenance has no
-        # such parameters. The `?` optional-chaining operators guard against
-        # a pathological attestation where `.predicate` or `.invocation` is a
-        # non-object (jq would otherwise exit 5 with "Cannot index string").
+        # All images in a Snapshot share one build, so the first provenance
+        # file's params are enough. Field path assumes Chains' SLSA v0.2
+        # predicate.invocation.parameters shape (same as rh-sign-python-wheels'
+        # v0.2 fallback) -- unconfirmed against a live python-git-ingest
+        # attestation. jq `//`/`?` fail safe to pypi-sdist if wrong or absent.
         PROV_FILE=$(find "${PROVENANCE_DIR}" -maxdepth 1 -name '*.json' | sort | head -n1)
 
         SOURCE_TYPE="pypi-sdist"
@@ -261,16 +238,12 @@ spec:
           UPSTREAM_REF=$(jq -r '.predicate?.invocation?.parameters?.UPSTREAM_REF? // ""' "${PROV_FILE}")
         fi
 
-        # Normalize explicitly: jq's `//` only substitutes on null/false, not
-        # on an empty string, so an attestation with SOURCE_TYPE explicitly
-        # set to "" would otherwise bypass the "pypi-sdist" default above.
+        # jq's `//` doesn't catch an explicit empty-string SOURCE_TYPE.
         if [[ -z "${SOURCE_TYPE}" ]]; then
           SOURCE_TYPE="pypi-sdist"
         fi
 
-        # Fail closed: a git-source build with missing upstream coordinates
-        # would otherwise flow silently into archive-sources with nothing to
-        # mirror, violating this plan's fail-closed principle elsewhere.
+        # Fail closed: a git build with no upstream coords has nothing to mirror.
         if [[ "${SOURCE_TYPE}" == "git" ]]; then
           if [[ -z "${UPSTREAM_URL}" || -z "${UPSTREAM_REF}" ]]; then
             echo "ERROR: SOURCE_TYPE is 'git' but upstreamUrl/upstreamRef are missing from the Chains provenance" \
@@ -298,12 +271,7 @@ spec:
 
         DATA_FILE="$(params.dataDir)/$(params.dataPath)"
 
-        # The git route (python-git-ingest) pushes a raw git source checkout as
-        # its OCI artifact -- never a wheel or a packaged sdist archive -- so
-        # there is no wheel SBOM to mine a pkg:pypi PURL from here. Read the
-        # sourceType already resolved by fetch-chains-provenance (which now
-        # runs before this step for exactly this reason) and skip entirely
-        # rather than hitting the "neither .whl nor sdist" failure below.
+        # git route artifacts are a raw checkout, not a wheel/sdist -- nothing to parse here.
         SOURCE_TYPE=$(cat "$(results.sourceType.path)")
         if [[ "${SOURCE_TYPE}" == "git" ]]; then
           echo "sourceType is 'git' (python-git-ingest route); ${FILES_DIR} contains a raw" \
@@ -320,10 +288,8 @@ spec:
             return
           fi
 
-          # Extract arch from platform tag (last underscore-separated segment)
           local arch="${platform##*_}"
 
-          # Derive OS from platform prefix
           local os="any"
           if [[ "$platform" == manylinux* || "$platform" == musllinux* || "$platform" == linux* ]]; then
             os="linux"
@@ -336,7 +302,6 @@ spec:
           echo "$arch $os"
         }
 
-        # Collect artifact entries as JSON lines for later deduplication
         ARTIFACTS_JSONL=$(mktemp)
 
         for whl in "${FILES_DIR}"/*.whl; do
@@ -358,7 +323,6 @@ spec:
           version="${parts[1]}"
           platform="${parts[$((num_parts - 1))]}"
 
-          # Extract SBOM from wheel zip
           dist_info="${name}-${version}.dist-info"
           sbom_path="${dist_info}/sboms/redhat.spdx.json"
           echo "  Extracting SBOM: $sbom_path"
@@ -367,7 +331,6 @@ spec:
             exit 1
           }
 
-          # Find pkg:pypi PURL from SPDX SBOM
           purl=$(jq -r '
             [.packages[]?.externalRefs[]?
               | select(.referenceType == "purl")
@@ -381,11 +344,9 @@ spec:
           fi
           echo "  Found PURL: $purl"
 
-          # Parse platform tag
           read -r arch os <<< "$(parse_wheel_platform "$platform")"
           echo "  Platform: $platform -> arch=$arch, os=$os"
 
-          # Build artifact entry as JSON line
           jq -nc \
             --arg component "$name" \
             --arg purl "$purl" \
@@ -395,8 +356,7 @@ spec:
             >> "$ARTIFACTS_JSONL"
         done
 
-        # Deduplicate by (name, version, architecture, os).
-        # Since purl encodes name@version, deduplicating by (component, purl, arch, os) is equivalent.
+        # purl encodes name@version, so dedup by (component, purl, arch, os).
         DEDUPED=$(jq -sc '
           group_by(.component + "|" + .purl + "|" + .architecture + "|" + .os)
           | map(.[0])
@@ -417,13 +377,11 @@ spec:
         else
           echo "Adding $ARTIFACT_COUNT artifact(s) to releaseNotes.content.artifacts"
 
-          # Append entries to .releaseNotes.content.artifacts[] in data.json
           TMP_DATA=$(mktemp)
           jq --argjson artifacts "$DEDUPED" '
             .releaseNotes.content.artifacts = (.releaseNotes.content.artifacts // []) + $artifacts
           ' "$DATA_FILE" > "$TMP_DATA" && mv "$TMP_DATA" "$DATA_FILE"
 
-          # Ensure mapping.components[] includes each artifact component with contentType
           COMPONENT_NAMES=$(jq -r '[.[].component] | unique | .[]' <<< "$DEDUPED")
           MAPPING_ENTRIES="[]"
           while IFS= read -r comp; do
