@@ -48,7 +48,7 @@ spec:
     - name: taskGitRevision
       type: string
       description: Git revision for release tasks
-      default: "development-python"
+      default: "9fc1660a23db849cc86f239b182d235af021419a"
     - name: taisceCuanGitUrl
       type: string
       description: Git repository containing taisce-cuan tasks
