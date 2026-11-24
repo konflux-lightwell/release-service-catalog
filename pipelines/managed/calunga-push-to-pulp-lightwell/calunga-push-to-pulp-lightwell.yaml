@@ -54,7 +54,7 @@ spec:
       type: string
       description: The revision in the slanCuanGitUrl repo to be used
       # Pinned to an immutable commit, following the standard convention.
-      default: db4f611567a78208b4bbddbb9198028bc782f23d
+      default: 02122fc373550bdf66423e8d1df24d9afb807043
     - name: registry-auth-secret
       type: string
       description: |
