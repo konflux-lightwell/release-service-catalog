@@ -56,7 +56,7 @@ spec:
     - name: taisceCuanGitRevision
       type: string
       description: Revision for taisce-cuan tasks
-      default: "282754bceabd06f678b2de839d7b5fbd60a04d4a"
+      default: "ff9980a0c2024e745ac40e98a6c3d297271fed6f"
     - name: ociStorage
       type: string
       description: OCI storage repository for Trusted Artifacts
@@ -127,7 +127,9 @@ spec:
               {"resultIndex": 3, "key": ".committerName"},
               {"resultIndex": 4, "key": ".committerEmail"},
               {"resultIndex": 5, "key": ".sign.cosignSecretName", "default": ""},
-              {"resultIndex": 6, "key": ".lightwell.tagProtectionUserIds", "default": ""}
+              {"resultIndex": 6, "key": ".lightwell.tagProtectionUserIds", "default": ""},
+              {"resultIndex": 7, "key": ".lightwell.mirrorPolicy", "default": ""},
+              {"resultIndex": 8, "key": ".lightwell.mirrorPolicyBotUserId", "default": ""}
             ]
 
     # ── 3. Reduce Snapshot ───────────────────────────────────────────────────
@@ -270,6 +272,10 @@ spec:
           value: $(tasks.collect-task-params.results.extractedValues[5])
         - name: tagProtectionUserIds
           value: $(tasks.collect-task-params.results.extractedValues[6])
+        - name: mirrorPolicy
+          value: $(tasks.collect-task-params.results.extractedValues[7])
+        - name: mirrorPolicyBotUserId
+          value: $(tasks.collect-task-params.results.extractedValues[8])
         - name: taskGitUrl
           value: $(params.taskGitUrl)
         - name: taskGitRevision
